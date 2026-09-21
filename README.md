@@ -1,29 +1,44 @@
-# ISO 9001 Document Control — v2 (Svelte + Bun + Rust + Go)
+# ISO 9001 Document Control — v2 (Svelte + Tailwind + Bun + Rust + Go + PostgreSQL)
 
-Walking skeleton ของ stack ใหม่ — ทั้ง 4 เทคโนโลยีเชื่อมกันได้จริงแล้ว (รอบนี้ = โครง + 1 หน้า)
+ระบบควบคุมเอกสาร ISO 9001:2015 ของบริษัท เค การ์เด้น แอนด์ เฟนซ์ จำกัด
 
 ## สถาปัตยกรรม
 ```
-Svelte + Bun  (frontend, :5173)  ──►  Rust API (Axum, :8080)  ──►  manifest.json / (ต่อไป: SQLite)
-        │                                     │
-        └───────── ผ่าน Vite proxy ───────────┴──►  Go converter (:8081)  (ต่อไป: แปลง docx/xlsx จริง)
+Svelte + Tailwind + Bun  (frontend, :5173)  ──►  Rust API (Axum, :8080)  ──►  PostgreSQL (:5432, Docker)
+        │                                              │
+        └───────────── ผ่าน Vite proxy ───────────────┴──►  Go converter (:8081)  (docx → HTML)
 ```
-- **Svelte + Bun** — หน้าเว็บ (Vite dev server รันด้วย Bun)
-- **Rust (Axum)** — API หลัก: `/api/docs` (อ่าน manifest), `/api/health` (เช็คตัวเอง + ping Go)
-- **Go** — บริการแปลงเอกสาร: `/health`, `/convert` (ตอนนี้เป็น stub)
+- **Svelte + Tailwind CSS + Bun** — หน้าเว็บ (Vite dev server รันด้วย Bun); สไตล์ทั้งหมดใช้ Tailwind (ธีม/สีอยู่ใน `frontend/tailwind.config.js`)
+- **Rust (Axum)** — API หลัก: `/api/docs`, `/api/stats`, `/api/overview`, เวอร์ชัน+ลายเซ็นเก็บใน **PostgreSQL** (`/api/health` เช็ค DB + Go)
+- **PostgreSQL** — ตาราง `versions` เก็บประวัติเวอร์ชัน + ลายเซ็นผู้แก้ไข (รันผ่าน Docker Compose)
+- **Go** — บริการแปลงเอกสาร: `/health`, `/convert` (docx → HTML)
 
 ## วิธีรัน
-**ดับเบิลคลิก `start-all.bat`** — เปิด 3 บริการ (แต่ละอันหน้าต่างของตัวเอง) แล้วเปิดเบราว์เซอร์ที่ http://localhost:5173
+**ดับเบิลคลิก `start-all.bat`** — เริ่ม PostgreSQL (Docker) + 3 บริการ แล้วเปิดเบราว์เซอร์ที่ http://localhost:5173
 
-หรือรันแยกเอง (3 หน้าต่าง):
+หรือรันแยกเอง:
 ```bash
+# 0) PostgreSQL (Docker Desktop ต้องเปิดอยู่)
+docker compose up -d
 # 1) Go converter
 cd converter && go run .
-# 2) Rust API
-cd api && cargo run
+# 2) Rust API  (DATABASE_URL ชี้ไป Postgres ของ docker-compose)
+cd api && DATABASE_URL="host=localhost port=5432 user=iso password=iso dbname=iso" cargo run
 # 3) Svelte + Bun
-cd frontend && bun run dev
+cd frontend && bun install && bun run dev
 ```
+
+### PostgreSQL / การย้ายข้อมูล
+- ตั้งค่า connection ผ่าน env `DATABASE_URL` (ค่าเริ่มต้นตรงกับ `docker-compose.yml`: user/password/db = `iso`)
+- ครั้งแรกที่รัน ถ้าตาราง `versions` ใน Postgres ยังว่าง **และ** มีไฟล์ SQLite เดิม (`data/versions.db`) API จะ **migrate ข้อมูลเวอร์ชันเก่าให้อัตโนมัติ** ครั้งเดียว
+- หยุด/ลบ DB: `docker compose down` (คง data), `docker compose down -v` (ลบ data ทั้งหมด)
+
+## โปรเจกต์ open source ที่ใกล้เคียง (อ้างอิงแนวทาง UI/workflow)
+เนื่องจากไม่มี QMS open source ที่ใช้ stack เดียวกัน (Rust/Svelte) โดยตรง ใช้เป็นแรงบันดาลใจด้าน UX/เวิร์กโฟลว์:
+- **Docuseal** (github.com/docusealco/docuseal, Rails+Vue, AGPL) — ตัวอย่าง e-signature/approval flow ที่ดีที่สุด: ลำดับผู้เซ็น, สถานะการอนุมัติ, หน้า audit trail — ตรงกับฟีเจอร์ "ลงชื่อก่อนบันทึกเวอร์ชันใหม่"
+- **Mayan EDMS** (github.com/mayan-edms/Mayan-EDMS, Django, Apache-2.0) — DMS ที่ใกล้ ISO ที่สุด: version list + revert, workflow state machine, cabinet/metadata คล้ายการจัดตามแผนก
+- **Paperless-ngx** (github.com/paperless-ngx/paperless-ngx, Django+Angular, GPLv3) — UI ทะเบียนเอกสาร/แดชบอร์ด + ตัวอ่าน PDF ที่ทันสมัยและดูแลต่อเนื่อง
+- อื่น ๆ: OpenQMS.net (โดเมน ISO 9001 ตรงสุด), LogicalDOC / OpenKM (workflow engine + version history UI)
 
 ## โครงสร้าง
 ```

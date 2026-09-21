@@ -3,6 +3,8 @@
   import * as XLSX from 'xlsx'
   import { api, fileUrl, b64ToBytes, bytesToB64 } from './lib/api.js'
   import SignDialog from './SignDialog.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
+  import Icon from './Icon.svelte'
 
   export let doc // { code, name, deptName, rev, file }
   const dispatch = createEventDispatcher()
@@ -13,6 +15,7 @@
   let signing = null, pendingUpload = null
   let err = '', loading = true
   let uploadInput
+  let confirmAction = null // { message, run }
 
   $: isLatest = meta && ver === meta.versions[0]?.version
 
@@ -41,8 +44,11 @@
     sheet = { names: wb.SheetNames, active: name, rows: norm.length ? norm : [['']] }
   }
   function switchSheet(name) {
-    if (dirty && !confirm('สลับชีตจะไม่เก็บการแก้ไขที่ยังไม่บันทึก ดำเนินการต่อ?')) return
-    pickSheet(name); dirty = false
+    if (!dirty) { pickSheet(name); return }
+    confirmAction = {
+      message: 'สลับชีตจะไม่เก็บการแก้ไขที่ยังไม่บันทึก ดำเนินการต่อ?',
+      run: () => { pickSheet(name); dirty = false },
+    }
   }
   function addRow() {
     sheet.rows = [...sheet.rows, Array(sheet.rows[0].length).fill('')]; dirty = true
@@ -83,8 +89,11 @@
     } catch (ex) { fail('บันทึกไม่สำเร็จ: ' + ex.message) }
   }
   function close() {
-    if (dirty && !confirm('มีการแก้ไขที่ยังไม่ได้บันทึก ปิดหน้าต่างเลยหรือไม่?')) return
-    dispatch('close')
+    if (!dirty) { dispatch('close'); return }
+    confirmAction = {
+      message: 'มีการแก้ไขที่ยังไม่ได้บันทึก ปิดหน้าต่างเลยหรือไม่?',
+      run: () => dispatch('close'),
+    }
   }
   const srcLabel = (s) => (s === 'original' ? 'ต้นฉบับ' : s === 'edit' ? 'แก้บนเว็บ' : 'อัปโหลด')
   const nextV = () => (meta?.versions[0]?.version || 1) + 1
@@ -101,7 +110,7 @@
           {#if meta && !isLatest} · <b>ไม่ใช่เวอร์ชันล่าสุด</b>{/if}
         </div>
       </div>
-      <button class="mx" on:click={close}>✕</button>
+      <button class="mx inline-flex items-center justify-center" on:click={close}><Icon name="x" size={16} /></button>
     </header>
 
     <nav class="mtabs">
@@ -109,23 +118,23 @@
       <button class={tab === 'hist' ? 'active' : ''} on:click={() => (tab = 'hist')}>ประวัติเวอร์ชัน ({meta?.versions.length || 0})</button>
       <span class="grow"></span>
       {#if !loading && tab === 'doc' && meta}
-        <a class="mbtn gh" href={fileUrl(doc.code, ver, true)} download>⬇ ดาวน์โหลด</a>
-        <button class="mbtn gh" on:click={() => uploadInput.click()}>⬆ อัปโหลดเวอร์ชันใหม่</button>
-        <input bind:this={uploadInput} type="file" style="display:none" on:change={onPickFile} />
+        <a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download><Icon name="download" size={14} /> ดาวน์โหลด</a>
+        <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => uploadInput.click()}><Icon name="upload" size={14} /> อัปโหลดเวอร์ชันใหม่</button>
+        <input bind:this={uploadInput} type="file" class="hidden" on:change={onPickFile} />
         {#if meta.editable && isLatest}
           {#if editing}
-            <button class="mbtn" disabled={!dirty} on:click={() => (signing = 'edit')}>💾 บันทึกเป็นเวอร์ชันใหม่</button>
+            <button class="mbtn accent inline-flex items-center gap-1.5" disabled={!dirty} on:click={() => (signing = 'edit')}><Icon name="save" size={14} /> บันทึกเป็นเวอร์ชันใหม่</button>
           {:else}
-            <button class="mbtn" on:click={() => (editing = true)}>✏️ แก้ไข</button>
+            <button class="mbtn inline-flex items-center gap-1.5" on:click={() => (editing = true)}><Icon name="pencil" size={14} /> แก้ไข</button>
           {/if}
         {/if}
       {/if}
     </nav>
 
     <div class="mbody">
-      {#if err}<div class="merr">{err}</div>{/if}
+      {#if err}<div class="merr"><span>{err}</span><button class="retry" on:click={() => load(ver)}>ลองใหม่</button></div>{/if}
       {#if loading}
-        <p class="mnote" style="text-align:center;padding:40px">กำลังเปิดเอกสาร…</p>
+        <div class="loadwrap"><span class="spin"></span><p class="mnote">กำลังเปิดเอกสาร…</p></div>
       {:else if tab === 'doc' && content}
         {#if content.kind === 'sheet' && sheet}
           {#if sheet.names.length > 1}
@@ -135,7 +144,7 @@
               {/each}
             </div>
           {/if}
-          {#if editing}<div class="edhint">✏️ กำลังแก้ไข — คลิกในช่องเพื่อพิมพ์ แล้วกด “บันทึกเป็นเวอร์ชันใหม่”</div>{/if}
+          {#if editing}<div class="edhint inline-flex items-center gap-1.5"><Icon name="pencil" size={14} /> กำลังแก้ไข — คลิกในช่องเพื่อพิมพ์ แล้วกด “บันทึกเป็นเวอร์ชันใหม่”</div>{/if}
           <div class="sheetwrap">
             <table class="sheet"><tbody>
               {#each sheet.rows as row, ri}
@@ -162,8 +171,8 @@
             <img class="docimg" src={fileUrl(doc.code, ver)} alt={doc.name} />
           {/if}
         {:else}
-          <div class="nopreview"><div class="big">📄</div><p>{content.reason}</p>
-            <a class="mbtn" href={fileUrl(doc.code, ver, true)} download>⬇ ดาวน์โหลดไฟล์</a></div>
+          <div class="nopreview"><div class="big text-faint flex justify-center"><Icon name="file-text" size={44} stroke={1.5} /></div><p>{content.reason}</p>
+            <a class="mbtn inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download><Icon name="download" size={14} /> ดาวน์โหลดไฟล์</a></div>
         {/if}
       {:else if tab === 'hist' && meta}
         <div class="vtree">
@@ -174,12 +183,12 @@
                   <span class="vsrc {v.source}">{srcLabel(v.source)}</span>
                   {#if v.version === ver}<span class="mnote">· กำลังดู</span>{/if}
                 </div>
-                <div class="vwho">✍ <b>{v.signerName}</b>{#if v.signerRole} · {v.signerRole}{/if}</div>
-                <div class="vmeta">🕒 {new Date(v.signedAt).toLocaleString('th-TH')} · {v.filename}</div>
-                {#if v.note}<div class="vnote">📝 {v.note}</div>{/if}
+                <div class="vwho inline-flex items-center gap-1.5"><Icon name="pen-line" size={14} /> <b>{v.signerName}</b>{#if v.signerRole} · {v.signerRole}{/if}</div>
+                <div class="vmeta inline-flex items-center gap-1.5"><Icon name="clock" size={12} /> {new Date(v.signedAt).toLocaleString('th-TH')} · {v.filename}</div>
+                {#if v.note}<div class="vnote inline-flex items-center gap-1.5"><Icon name="note" size={13} /> {v.note}</div>{/if}
                 <div class="vbtns">
                   {#if v.version !== ver}<button class="mbtn gh" on:click={() => load(v.version)}>เปิดดูเวอร์ชันนี้</button>{/if}
-                  <a class="mbtn gh" href={fileUrl(doc.code, v.version, true)} download>⬇ ดาวน์โหลด</a>
+                  <a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, v.version, true)} download><Icon name="download" size={14} /> ดาวน์โหลด</a>
                 </div>
               </div>
             </div>
@@ -194,6 +203,17 @@
         summary={signing === 'edit' ? `บันทึกการแก้ไขตารางเป็นเวอร์ชัน ${nextV()}` : `อัปโหลดไฟล์ “${pendingUpload?.name}” เป็นเวอร์ชัน ${nextV()}`}
         on:confirm={doSave}
         on:cancel={() => { signing = null; pendingUpload = null }}
+      />
+    {/if}
+
+    {#if confirmAction}
+      <ConfirmDialog
+        title="ยืนยันการทำรายการ"
+        message={confirmAction.message}
+        confirmLabel="ดำเนินการต่อ"
+        danger
+        on:confirm={() => { confirmAction.run(); confirmAction = null }}
+        on:cancel={() => (confirmAction = null)}
       />
     {/if}
   </div>

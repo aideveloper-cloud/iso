@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: iso-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: iso
+      POSTGRES_PASSWORD: iso
+      POSTGRES_DB: iso
+      TZ: Asia/Bangkok
+    ports:
+      - "5432:5432"
+    volumes:
+      - iso-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iso -d iso"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  iso-pgdata:

@@ -1,5 +1,5 @@
 // iso-api — API หลัก (Rust + Axum)
-//   จัดการเอกสาร ISO: ทะเบียน, เวอร์ชัน+ลายเซ็น (SQLite), เนื้อหา (xlsx/docx/pdf), บันทึกเวอร์ชัน,
+//   จัดการเอกสาร ISO: ทะเบียน, เวอร์ชัน+ลายเซ็น (PostgreSQL), เนื้อหา (xlsx/docx/pdf), บันทึกเวอร์ชัน,
 //   สรุปแดชบอร์ด, คลังภาพรวมองค์กร  ·  แปลง docx->HTML โดยเรียก Go converter
 use axum::{
     body::Body,
@@ -10,10 +10,11 @@ use axum::{
     Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use rusqlite::{params, Connection};
+use deadpool_postgres::{ManagerConfig, Pool, RecyclingMethod};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{collections::HashMap, fs, net::TcpStream, path::PathBuf, sync::Arc, sync::Mutex, time::Duration};
+use std::{collections::HashMap, fs, net::TcpStream, path::PathBuf, sync::Arc, time::Duration};
+use tokio_postgres::NoTls;
 
 struct AppState {
     manifest: Vec<Value>,
@@ -22,7 +23,7 @@ struct AppState {
     docs_root: PathBuf,
     storage: PathBuf,
     conv_port: String,
-    db: Mutex<Connection>,
+    db: Pool,
 }
 type S = Arc<AppState>;
 
@@ -58,92 +59,163 @@ fn pct(s: &str) -> String {
     o
 }
 
-// ---------- database ----------
-fn open_db(path: &PathBuf) -> Connection {
-    let c = Connection::open(path).expect("open db");
-    c.execute_batch(
-        "CREATE TABLE IF NOT EXISTS versions(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            doc_code TEXT NOT NULL, version INTEGER NOT NULL,
-            filename TEXT NOT NULL, ext TEXT NOT NULL,
-            stored_name TEXT, origin_path TEXT, size INTEGER NOT NULL DEFAULT 0,
-            source TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
-            signer_name TEXT NOT NULL, signer_role TEXT NOT NULL DEFAULT '',
-            signed_at TEXT NOT NULL, created_at TEXT NOT NULL,
-            UNIQUE(doc_code, version));
-         CREATE INDEX IF NOT EXISTS idx_v_doc ON versions(doc_code);",
-    )
-    .unwrap();
-    c
-}
+// ---------- database (PostgreSQL) ----------
+const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS versions(
+        id BIGSERIAL PRIMARY KEY,
+        doc_code TEXT NOT NULL, version BIGINT NOT NULL,
+        filename TEXT NOT NULL, ext TEXT NOT NULL,
+        stored_name TEXT, origin_path TEXT, size BIGINT NOT NULL DEFAULT 0,
+        source TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+        signer_name TEXT NOT NULL, signer_role TEXT NOT NULL DEFAULT '',
+        signed_at TEXT NOT NULL, created_at TEXT NOT NULL,
+        UNIQUE(doc_code, version));
+     CREATE INDEX IF NOT EXISTS idx_v_doc ON versions(doc_code);";
 
-fn ensure_original(st: &S, code: &str) {
-    let doc = match st.by_code.get(code) { Some(d) => d.clone(), None => return };
-    let db = st.db.lock().unwrap();
-    let maxv: i64 = db
-        .query_row("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=?1", [code], |r| r.get(0))
-        .unwrap_or(0);
-    if maxv > 0 { return; }
-    let rel = doc["path"].as_str().unwrap_or("");
-    let size = fs::metadata(st.docs_root.join(rel)).map(|m| m.len() as i64).unwrap_or(0);
-    let now = now_iso();
-    let _ = db.execute(
-        "INSERT INTO versions(doc_code,version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at)
-         VALUES(?1,1,?2,?3,NULL,?4,?5,'original','เวอร์ชันต้นฉบับจากแฟ้มเอกสาร','ระบบ (ต้นฉบับ)','',?6,?6)",
-        params![code, doc["file"].as_str().unwrap_or(""), ext_of(&doc), rel, size, now],
-    );
-}
-
-fn row_to_json(r: &rusqlite::Row) -> rusqlite::Result<Value> {
-    Ok(json!({
-        "version": r.get::<_, i64>(0)?, "filename": r.get::<_, String>(1)?, "ext": r.get::<_, String>(2)?,
-        "storedName": r.get::<_, Option<String>>(3)?, "originPath": r.get::<_, Option<String>>(4)?,
-        "size": r.get::<_, i64>(5)?, "source": r.get::<_, String>(6)?, "note": r.get::<_, String>(7)?,
-        "signerName": r.get::<_, String>(8)?, "signerRole": r.get::<_, String>(9)?,
-        "signedAt": r.get::<_, String>(10)?, "createdAt": r.get::<_, String>(11)?,
-    }))
-}
 const VCOLS: &str = "version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at";
 
-fn list_versions(st: &S, code: &str) -> Vec<Value> {
-    let db = st.db.lock().unwrap();
-    let mut stmt = db
-        .prepare(&format!("SELECT {VCOLS} FROM versions WHERE doc_code=?1 ORDER BY version DESC"))
-        .unwrap();
-    let rows = stmt.query_map([code], |r| row_to_json(r)).unwrap();
-    rows.filter_map(|x| x.ok()).collect()
+fn make_pool() -> Pool {
+    let url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "host=localhost port=5432 user=iso password=iso dbname=iso".into());
+    let pg_config: tokio_postgres::Config = url.parse().expect("DATABASE_URL ไม่ถูกต้อง");
+    let mgr = deadpool_postgres::Manager::from_config(
+        pg_config,
+        NoTls,
+        ManagerConfig { recycling_method: RecyclingMethod::Fast },
+    );
+    Pool::builder(mgr).max_size(16).build().expect("สร้าง pool ไม่ได้")
 }
 
-fn counts_by_doc(st: &S) -> HashMap<String, (i64, i64)> {
-    let db = st.db.lock().unwrap();
-    let mut stmt = db.prepare("SELECT doc_code,MAX(version),COUNT(*) FROM versions GROUP BY doc_code").unwrap();
-    let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
-        .unwrap();
+// รอ Postgres พร้อม (docker อาจยังบูตไม่เสร็จ) แล้วสร้างตาราง
+async fn init_db(pool: &Pool) {
+    for attempt in 1..=30 {
+        match pool.get().await {
+            Ok(client) => {
+                client.batch_execute(SCHEMA).await.expect("สร้างตารางไม่สำเร็จ");
+                return;
+            }
+            Err(e) => {
+                if attempt == 30 { panic!("เชื่อมต่อ PostgreSQL ไม่ได้: {e}"); }
+                println!("  ⏳ รอ PostgreSQL... (ครั้งที่ {attempt})");
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
+        }
+    }
+}
+
+// migrate ข้อมูลเวอร์ชันเก่าจาก SQLite (versions.db) ครั้งเดียว ถ้าตาราง Postgres ยังว่าง
+async fn migrate_from_sqlite(pool: &Pool, sqlite_path: &PathBuf) {
+    if !sqlite_path.exists() { return; }
+    let client = match pool.get().await { Ok(c) => c, Err(_) => return };
+    let existing: i64 = client
+        .query_one("SELECT COUNT(*) FROM versions", &[])
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+    if existing > 0 { return; } // มีข้อมูลแล้ว ไม่ต้อง migrate
+
+    // อ่านทุกแถวจาก SQLite
+    type Row = (String, i64, String, String, Option<String>, Option<String>, i64, String, String, String, String, String, String);
+    let rows: Vec<Row> = match rusqlite::Connection::open(sqlite_path) {
+        Ok(c) => {
+            let mut stmt = match c.prepare(&format!("SELECT doc_code,{VCOLS} FROM versions")) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let it = stmt.query_map([], |r| {
+                Ok((
+                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?,
+                    r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?,
+                ))
+            });
+            match it { Ok(m) => m.filter_map(|x| x.ok()).collect(), Err(_) => return }
+        }
+        Err(_) => return,
+    };
+    if rows.is_empty() { return; }
+    let n = rows.len();
+    for r in rows {
+        let _ = client.execute(
+            "INSERT INTO versions(doc_code,version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (doc_code,version) DO NOTHING",
+            &[&r.0,&r.1,&r.2,&r.3,&r.4,&r.5,&r.6,&r.7,&r.8,&r.9,&r.10,&r.11,&r.12],
+        ).await;
+    }
+    println!("  📦 migrate ข้อมูลจาก SQLite สำเร็จ: {n} เวอร์ชัน");
+}
+
+async fn ensure_original(st: &S, code: &str) {
+    let doc = match st.by_code.get(code) { Some(d) => d.clone(), None => return };
+    let client = match st.db.get().await { Ok(c) => c, Err(_) => return };
+    let maxv: i64 = client
+        .query_one("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=$1", &[&code])
+        .await
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+    if maxv > 0 { return; }
+    let rel = doc["path"].as_str().unwrap_or("").to_string();
+    let size = fs::metadata(st.docs_root.join(&rel)).map(|m| m.len() as i64).unwrap_or(0);
+    let now = now_iso();
+    let filename = doc["file"].as_str().unwrap_or("").to_string();
+    let ext = ext_of(&doc);
+    let _ = client.execute(
+        "INSERT INTO versions(doc_code,version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at)
+         VALUES($1,1,$2,$3,NULL,$4,$5,'original','เวอร์ชันต้นฉบับจากแฟ้มเอกสาร','ระบบ (ต้นฉบับ)','',$6,$6)
+         ON CONFLICT (doc_code,version) DO NOTHING",
+        &[&code, &filename, &ext, &rel, &size, &now],
+    ).await;
+}
+
+fn row_to_json(r: &tokio_postgres::Row) -> Value {
+    json!({
+        "version": r.get::<_, i64>(0), "filename": r.get::<_, String>(1), "ext": r.get::<_, String>(2),
+        "storedName": r.get::<_, Option<String>>(3), "originPath": r.get::<_, Option<String>>(4),
+        "size": r.get::<_, i64>(5), "source": r.get::<_, String>(6), "note": r.get::<_, String>(7),
+        "signerName": r.get::<_, String>(8), "signerRole": r.get::<_, String>(9),
+        "signedAt": r.get::<_, String>(10), "createdAt": r.get::<_, String>(11),
+    })
+}
+
+async fn list_versions(st: &S, code: &str) -> Vec<Value> {
+    let client = match st.db.get().await { Ok(c) => c, Err(_) => return vec![] };
+    let sql = format!("SELECT {VCOLS} FROM versions WHERE doc_code=$1 ORDER BY version DESC");
+    match client.query(&sql, &[&code]).await {
+        Ok(rows) => rows.iter().map(row_to_json).collect(),
+        Err(_) => vec![],
+    }
+}
+
+async fn counts_by_doc(st: &S) -> HashMap<String, (i64, i64)> {
     let mut m = HashMap::new();
-    for r in rows.flatten() { m.insert(r.0, (r.1, r.2)); }
+    let client = match st.db.get().await { Ok(c) => c, Err(_) => return m };
+    if let Ok(rows) = client
+        .query("SELECT doc_code,MAX(version),COUNT(*) FROM versions GROUP BY doc_code", &[])
+        .await
+    {
+        for r in rows {
+            m.insert(r.get::<_, String>(0), (r.get::<_, i64>(1), r.get::<_, i64>(2)));
+        }
+    }
     m
 }
 
 // (version, absolute path, ext, filename)
-fn resolve(st: &S, code: &str, v: Option<&String>) -> Result<(i64, PathBuf, String, String), Response> {
+async fn resolve(st: &S, code: &str, v: Option<&String>) -> Result<(i64, PathBuf, String, String), Response> {
     if !st.by_code.contains_key(code) { return Err(err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร")); }
-    ensure_original(st, code);
-    let db = st.db.lock().unwrap();
-    let mapper = |r: &rusqlite::Row| {
-        Ok((
-            r.get::<_, i64>(0)?, r.get::<_, String>(1)?,
-            r.get::<_, Option<String>>(2)?, r.get::<_, Option<String>>(3)?, r.get::<_, String>(4)?,
-        ))
-    };
-    let res = if let Some(vv) = v {
+    ensure_original(st, code).await;
+    let client = match st.db.get().await { Ok(c) => c, Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้")) };
+    let row = if let Some(vv) = v {
         let vn: i64 = vv.parse().unwrap_or(0);
-        db.query_row("SELECT version,ext,stored_name,origin_path,filename FROM versions WHERE doc_code=?1 AND version=?2", params![code, vn], mapper)
+        client.query_opt("SELECT version,ext,stored_name,origin_path,filename FROM versions WHERE doc_code=$1 AND version=$2", &[&code, &vn]).await
     } else {
-        db.query_row("SELECT version,ext,stored_name,origin_path,filename FROM versions WHERE doc_code=?1 ORDER BY version DESC LIMIT 1", params![code], mapper)
+        client.query_opt("SELECT version,ext,stored_name,origin_path,filename FROM versions WHERE doc_code=$1 ORDER BY version DESC LIMIT 1", &[&code]).await
     };
-    match res {
-        Ok((ver, ext, stored, origin, filename)) => {
+    match row {
+        Ok(Some(r)) => {
+            let ver: i64 = r.get(0);
+            let ext: String = r.get(1);
+            let stored: Option<String> = r.get(2);
+            let origin: Option<String> = r.get(3);
+            let filename: String = r.get(4);
             let abs = match stored {
                 Some(s) => st.storage.join(s),
                 None => st.docs_root.join(origin.unwrap_or_default()),
@@ -151,7 +223,7 @@ fn resolve(st: &S, code: &str, v: Option<&String>) -> Result<(i64, PathBuf, Stri
             if !abs.exists() { return Err(err(StatusCode::NOT_FOUND, "ไม่พบไฟล์ในระบบ")); }
             Ok((ver, abs, ext, filename))
         }
-        Err(_) => Err(err(StatusCode::NOT_FOUND, "ไม่พบเวอร์ชัน")),
+        _ => Err(err(StatusCode::NOT_FOUND, "ไม่พบเวอร์ชัน")),
     }
 }
 
@@ -179,11 +251,12 @@ async fn health(State(st): State<S>) -> Json<Value> {
         .ok()
         .and_then(|a| TcpStream::connect_timeout(&a, Duration::from_millis(400)).ok())
         .is_some();
-    Json(json!({ "service": "iso-api (Rust/Axum)", "api": "ok", "converter": if conv {"ok"} else {"down"} }))
+    let db_ok = st.db.get().await.is_ok();
+    Json(json!({ "service": "iso-api (Rust/Axum)", "api": "ok", "db": if db_ok {"ok"} else {"down"}, "converter": if conv {"ok"} else {"down"} }))
 }
 
 async fn docs_list(State(st): State<S>) -> Json<Value> {
-    let counts = counts_by_doc(&st);
+    let counts = counts_by_doc(&st).await;
     let arr: Vec<Value> = st
         .manifest
         .iter()
@@ -204,18 +277,18 @@ async fn docs_list(State(st): State<S>) -> Json<Value> {
 
 async fn versions(Path(code): Path<String>, State(st): State<S>) -> Response {
     let doc = match st.by_code.get(&code) { Some(d) => d.clone(), None => return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร") };
-    ensure_original(&st, &code);
+    ensure_original(&st, &code).await;
     let e = ext_of(&doc);
     Json(json!({
         "code": code, "name": doc["name"], "ext": e,
         "editable": editable(&e), "previewable": previewable(&e),
-        "versions": list_versions(&st, &code),
+        "versions": list_versions(&st, &code).await,
     }))
     .into_response()
 }
 
 async fn content(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
-    let (ver, abs, ext, _fn) = match resolve(&st, &code, q.get("v")) { Ok(x) => x, Err(r) => return r };
+    let (ver, abs, ext, _fn) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
     if ext == "xls" || ext == "xlsx" {
         match fs::read(&abs) {
             Ok(b) => Json(json!({ "kind": "sheet", "version": ver, "ext": ext, "data": B64.encode(b) })).into_response(),
@@ -236,7 +309,7 @@ async fn content(Path(code): Path<String>, Query(q): Query<HashMap<String, Strin
 }
 
 async fn file(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
-    let (_v, abs, ext, filename) = match resolve(&st, &code, q.get("v")) { Ok(x) => x, Err(r) => return r };
+    let (_v, abs, ext, filename) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
     let bytes = match fs::read(&abs) { Ok(b) => b, Err(_) => return err(StatusCode::NOT_FOUND, "อ่านไฟล์ไม่ได้") };
     let disp = if q.get("dl").map(|s| s == "1").unwrap_or(false) { "attachment" } else { "inline" };
     Response::builder()
@@ -260,7 +333,7 @@ struct SaveReq {
 
 async fn save(Path(code): Path<String>, State(st): State<S>, Json(b): Json<SaveReq>) -> Response {
     let doc = match st.by_code.get(&code) { Some(d) => d.clone(), None => return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร") };
-    ensure_original(&st, &code);
+    ensure_original(&st, &code).await;
     let name = b.signerName.unwrap_or_default();
     if name.trim().is_empty() { return err(StatusCode::BAD_REQUEST, "ต้องลงชื่อผู้แก้ไขก่อนบันทึก"); }
     let data = match b.dataBase64 { Some(d) if !d.is_empty() => d, _ => return err(StatusCode::BAD_REQUEST, "ไม่พบข้อมูลไฟล์") };
@@ -279,24 +352,39 @@ async fn save(Path(code): Path<String>, State(st): State<S>, Json(b): Json<SaveR
     let note = b.note.unwrap_or_default();
     let role = b.signerRole.unwrap_or_default();
 
-    let db = st.db.lock().unwrap();
-    let version: i64 = db.query_row("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=?1", [&code], |r| r.get(0)).unwrap_or(0) + 1;
+    let client = match st.db.get().await { Ok(c) => c, Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
+    let version: i64 = client
+        .query_one("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=$1", &[&code])
+        .await
+        .map(|r| r.get::<_, i64>(0))
+        .unwrap_or(0)
+        + 1;
     let stored: String = format!("{}__v{}.{}", code.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c != '.', "_"), version, safe_ext);
     if let Err(e) = fs::write(st.storage.join(&stored), &bytes) {
         return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("บันทึกไฟล์ไม่ได้: {e}"));
     }
     let now = now_iso();
-    let _ = db.execute(
+    let size = bytes.len() as i64;
+    let note_t = note.trim().to_string();
+    let name_t = name.trim().to_string();
+    let role_t = role.trim().to_string();
+    if let Err(e) = client.execute(
         "INSERT INTO versions(doc_code,version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at)
-         VALUES(?1,?2,?3,?4,?5,NULL,?6,?7,?8,?9,?10,?11,?11)",
-        params![code, version, filename, safe_ext, stored, bytes.len() as i64, source, note.trim(), name.trim(), role.trim(), now],
-    );
-    let v = db.query_row(&format!("SELECT {VCOLS} FROM versions WHERE doc_code=?1 AND version=?2"), params![code, version], |r| row_to_json(r)).unwrap();
+         VALUES($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11,$11)",
+        &[&code, &version, &filename, &safe_ext, &stored, &size, &source, &note_t, &name_t, &role_t, &now],
+    ).await {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("บันทึกเวอร์ชันไม่ได้: {e}"));
+    }
+    let sql = format!("SELECT {VCOLS} FROM versions WHERE doc_code=$1 AND version=$2");
+    let v = match client.query_one(&sql, &[&code, &version]).await {
+        Ok(r) => row_to_json(&r),
+        Err(_) => json!({ "version": version }),
+    };
     Json(json!({ "ok": true, "version": v })).into_response()
 }
 
 async fn stats(State(st): State<S>) -> Json<Value> {
-    let counts = counts_by_doc(&st);
+    let counts = counts_by_doc(&st).await;
     let (mut by_type, mut by_ext) = (serde_json::Map::new(), serde_json::Map::new());
     let mut by_dept: HashMap<String, (i64, i64, i64)> = HashMap::new(); // total, revised, versions
     for d in &st.manifest {
@@ -319,14 +407,19 @@ async fn stats(State(st): State<S>) -> Json<Value> {
 
     // signers + recent (จากเวอร์ชันที่ไม่ใช่ original)
     let all: Vec<(String, String, String, String, String, String, i64)> = {
-        let db = st.db.lock().unwrap();
-        let mut stmt = db.prepare("SELECT signer_name,signer_role,signed_at,doc_code,note,source,version FROM versions WHERE source!='original' ORDER BY created_at DESC").unwrap();
-        let v = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))
-            .unwrap()
-            .flatten()
-            .collect();
-        v
+        match st.db.get().await {
+            Ok(client) => match client
+                .query("SELECT signer_name,signer_role,signed_at,doc_code,note,source,version FROM versions WHERE source!='original' ORDER BY created_at DESC", &[])
+                .await
+            {
+                Ok(rows) => rows.iter().map(|r| (
+                    r.get::<_, String>(0), r.get::<_, String>(1), r.get::<_, String>(2),
+                    r.get::<_, String>(3), r.get::<_, String>(4), r.get::<_, String>(5), r.get::<_, i64>(6),
+                )).collect(),
+                Err(_) => vec![],
+            },
+            Err(_) => vec![],
+        }
     };
     let total_edits = all.len();
     let mut signers: HashMap<String, (String, i64, String)> = HashMap::new();
@@ -385,12 +478,15 @@ async fn main() {
     let manifest: Vec<Value> = serde_json::from_str(&fs::read_to_string(docs_root.join("manifest.json")).expect("manifest.json")).expect("parse manifest");
     let overview_json: Value = fs::read_to_string(docs_root.join("overview.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!([]));
     let by_code: HashMap<String, Value> = manifest.iter().filter_map(|d| d["code"].as_str().map(|c| (c.to_string(), d.clone()))).collect();
-    let db = open_db(&docs_root.join("versions.db"));
+
+    let pool = make_pool();
+    init_db(&pool).await;
+    migrate_from_sqlite(&pool, &docs_root.join("versions.db")).await;
 
     let state: S = Arc::new(AppState {
         manifest, by_code, overview: overview_json, docs_root, storage,
         conv_port: std::env::var("CONVERTER_PORT").unwrap_or_else(|_| "8081".into()),
-        db: Mutex::new(db),
+        db: pool,
     });
 
     let app = Router::new()
@@ -407,6 +503,6 @@ async fn main() {
 
     let port = std::env::var("API_PORT").unwrap_or_else(|_| "8080".into());
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap();
-    println!("\n  ✅ iso-api (Rust/Axum) พร้อมที่ http://localhost:{port}\n");
+    println!("\n  ✅ iso-api (Rust/Axum + PostgreSQL) พร้อมที่ http://localhost:{port}\n");
     axum::serve(listener, app).await.unwrap();
 }

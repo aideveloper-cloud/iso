@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte'
+  import Icon from './Icon.svelte'
   export let title = ''
   export let summary = ''
   const dispatch = createEventDispatcher()
@@ -30,7 +31,7 @@
     {#if err}<div class="merr">{err}</div>{/if}
     <div class="sgact">
       <button class="mbtn gh" on:click={() => dispatch('cancel')}>ยกเลิก</button>
-      <button class="mbtn" disabled={busy} on:click={confirm}>{busy ? 'กำลังบันทึก…' : '💾 บันทึกเวอร์ชันใหม่'}</button>
+      <button class="mbtn accent inline-flex items-center gap-1.5" disabled={busy} on:click={confirm}>{#if busy}กำลังบันทึก…{:else}<Icon name="save" size={14} /> บันทึกเวอร์ชันใหม่{/if}</button>
     </div>
   </div>
 </div>
