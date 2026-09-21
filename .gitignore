@@ -1,0 +1,14 @@
+# build artifacts
+frontend/node_modules/
+frontend/dist/
+api/target/
+converter/*.exe
+
+# runtime data — real company documents & version history, not source code
+data/docs/
+data/storage/
+data/versions.db
+
+# editor/os
+.DS_Store
+Thumbs.db

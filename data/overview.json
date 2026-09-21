@@ -1,0 +1,709 @@
+[
+ {
+  "key": "profile",
+  "name": "Company Profile",
+  "sub": "ข้อมูลบริษัท ขอบเขตระบบ และการรับรอง",
+  "icon": "🏢",
+  "groups": [
+   {
+    "label": "คู่มือคุณภาพ (Quality Manual)",
+    "items": [
+     {
+      "name": "QM คู่มือคุณภาพ (Quality Manual) complete.1.doc",
+      "path": "docs/00 คู่มือคุณภาพ (QM)/QM คู่มือคุณภาพ (Quality Manual) complete.1.doc",
+      "kind": "word",
+      "inline": false,
+      "size": 377856,
+      "mtime": "2026-06-04"
+     }
+    ]
+   },
+   {
+    "label": "ใบรับรองและผังกระบวนการธุรกิจ",
+    "items": [
+     {
+      "name": "Business Flow Chart.docx",
+      "path": "docs/5 ภาพรวมองค์กร/01 Company Profile/Business Flow Chart.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 122735,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "Business Flow Chart.jpg",
+      "path": "docs/5 ภาพรวมองค์กร/01 Company Profile/Business Flow Chart.jpg",
+      "kind": "image",
+      "inline": true,
+      "size": 92506,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "Business Flow Chart.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/01 Company Profile/Business Flow Chart.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 81099,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "CERTIFICATE KGARDEN (ISO9001.2015).pdf",
+      "path": "docs/5 ภาพรวมองค์กร/01 Company Profile/CERTIFICATE KGARDEN (ISO9001.2015).pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 136570,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "CERTIFICATE.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/01 Company Profile/CERTIFICATE.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 915040,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "New Form Sign Application - Kgarden ISO9001.doc",
+      "path": "docs/5 ภาพรวมองค์กร/01 Company Profile/New Form Sign Application - Kgarden ISO9001.doc",
+      "kind": "word",
+      "inline": false,
+      "size": 76288,
+      "mtime": "2026-09-18"
+     }
+    ]
+   }
+  ],
+  "count": 7
+ },
+ {
+  "key": "role",
+  "name": "บทบาทองค์กร",
+  "sub": "โครงสร้างองค์กร อำนาจหน้าที่ และใบกำหนดหน้าที่งาน",
+  "icon": "👥",
+  "groups": [
+   {
+    "label": "ผังโครงสร้างองค์กรและประกาศแต่งตั้ง",
+    "items": [
+     {
+      "name": "เลขที่ ISO001.2568 ประกาศแต่งตั้งคณะทำงาน (ISO9001.2015).doc",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/เลขที่ ISO001.2568 ประกาศแต่งตั้งคณะทำงาน (ISO9001.2015).doc",
+      "kind": "word",
+      "inline": false,
+      "size": 364032,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "Organization (SD-HR-001).1.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/Organization (SD-HR-001).1.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 114627,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "Organization (SD-HR-001).xlsx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/Organization (SD-HR-001).xlsx",
+      "kind": "excel",
+      "inline": false,
+      "size": 186267,
+      "mtime": "2026-09-18"
+     }
+    ]
+   },
+   {
+    "label": "ใบกำหนดหน้าที่งานรายตำแหน่ง (JD)",
+    "items": [
+     {
+      "name": "เจ้าหน้าที่ประสานงานคลัง.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/เจ้าหน้าที่ประสานงานคลัง.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 341775,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- กรรมการผู้จัดการ.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- กรรมการผู้จัดการ.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 339761,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-กราฟิคดีไซน์.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-กราฟิคดีไซน์.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 340884,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-คอนเทนต์.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-คอนเทนต์.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342014,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- จัดซื้อ.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- จัดซื้อ.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 339944,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - เจ้าหน้าที่การเงินและบัญชี.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - เจ้าหน้าที่การเงินและบัญชี.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342213,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- เจ้าหน้าที่การตลาด.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- เจ้าหน้าที่การตลาด.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342189,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - เจ้าหน้าที่ขนส่ง.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - เจ้าหน้าที่ขนส่ง.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 341540,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-เจ้าหน้าที่ขนส่ง.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-เจ้าหน้าที่ขนส่ง.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 340208,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- เจ้าหน้าที่คลังสินค้า.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- เจ้าหน้าที่คลังสินค้า.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 341987,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - เจ้าหน้าที่จัดซื้อ.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - เจ้าหน้าที่จัดซื้อ.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342392,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-เจ้าหน้าที่จัดซื้อ.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-เจ้าหน้าที่จัดซื้อ.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 340095,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-เจ้าหน้าที่ตรวจสอบคุณภาพ.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-เจ้าหน้าที่ตรวจสอบคุณภาพ.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 338696,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - เจ้าหน้าที่ตรวจสอบภายใน.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - เจ้าหน้าที่ตรวจสอบภายใน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 339682,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - เจ้าหน้าทีบริการหลังการขาย.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - เจ้าหน้าทีบริการหลังการขาย.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 340782,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- เจ้าหน้าที่บัญชีและการเงิน.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- เจ้าหน้าที่บัญชีและการเงิน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342438,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-เจ้าหน้าที่ประสานงานคลัง.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-เจ้าหน้าที่ประสานงานคลัง.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 339282,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- เจ้าหน้าที่ประสานงานทั่วไป -(ช่าง).doc",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- เจ้าหน้าที่ประสานงานทั่วไป -(ช่าง).doc",
+      "kind": "word",
+      "inline": false,
+      "size": 429056,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- เจ้าหน้าที่ประสานงานไลฟ์สด.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- เจ้าหน้าที่ประสานงานไลฟ์สด.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342260,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-เจ้าหน้าที่ไลฟ์สด.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-เจ้าหน้าที่ไลฟ์สด.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 340674,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - ซ่อมบำรุง.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - ซ่อมบำรุง.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 341834,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - ธุรการกฎหมาย.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - ธุรการกฎหมาย.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 340175,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD -ธุรการโรงงาน.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD -ธุรการโรงงาน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342007,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-ธุรการโรงงาน.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-ธุรการโรงงาน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 338758,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- นักพัฒนาองค์กร.doc",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- นักพัฒนาองค์กร.doc",
+      "kind": "word",
+      "inline": false,
+      "size": 428032,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-ประธานเจ้าหน้าที่ฝ่ายปฏิบัติการ.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-ประธานเจ้าหน้าที่ฝ่ายปฏิบัติการ.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342151,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- ผู้จัดการทั่วไปฝ่ายสำนักงานและประสานงาน ตปท.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- ผู้จัดการทั่วไปฝ่ายสำนักงานและประสานงาน ตปท.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 340200,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- ผู้จัดการแผนกการตลาด.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- ผู้จัดการแผนกการตลาด.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 341075,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- ผู้จัดการแผนกขาย.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- ผู้จัดการแผนกขาย.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 341836,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - ผู้จัดการฝ่ายการเงินและบัญชี.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - ผู้จัดการฝ่ายการเงินและบัญชี.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342720,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- ผู้จัดการห่วงโซ่อุปทาน.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- ผู้จัดการห่วงโซ่อุปทาน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342332,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-ผู้จัดการห่วงโซ่อุปทาน.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-ผู้จัดการห่วงโซ่อุปทาน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 339704,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-ผู้อำนวยการฝ่ายทรัพยากรบุคคล.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-ผู้อำนวยการฝ่ายทรัพยากรบุคคล.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 341529,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - พนักงานขาย.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - พนักงานขาย.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342429,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- พนักงานแผนกการผลิต.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- พนักงานแผนกการผลิต.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 340264,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- ล่ามภาษาจีนและต่างประเทศ.doc",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- ล่ามภาษาจีนและต่างประเทศ.doc",
+      "kind": "word",
+      "inline": false,
+      "size": 413184,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-วิศวกรไฟฟ้า.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-วิศวกรไฟฟ้า.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 339676,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-วิศวกรสนาม.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-วิศวกรสนาม.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342400,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-วิศวกรสำนักงาน.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-วิศวกรสำนักงาน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 341914,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- สถาปนิก.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- สถาปนิก.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 339484,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-หัวหน้าคนงาน.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-หัวหน้าคนงาน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 340540,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - หัวหน้าแผนกติดตั้ง.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - หัวหน้าแผนกติดตั้ง.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 342040,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-หัวหน้าฝ่ายผลิตแพลนท์ปูน.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-หัวหน้าฝ่ายผลิตแพลนท์ปูน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 341970,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD- แอดมินขาย.doc",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD- แอดมินขาย.doc",
+      "kind": "word",
+      "inline": false,
+      "size": 409600,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD-IT.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD-IT.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 339413,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "JD - Product Engineer.docx",
+      "path": "docs/5 ภาพรวมองค์กร/02 บทบาทองค์กร/JD ใบกำหนดหน้าที่งาน/JD - Product Engineer.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 343664,
+      "mtime": "2026-09-18"
+     }
+    ]
+   },
+   {
+    "label": "แบบฟอร์มบรรยายลักษณะงาน",
+    "items": [
+     {
+      "name": "FM-HR-004 Rev.0 บรรยายลักษณะงาน.docx",
+      "path": "docs/3 แบบฟอร์ม (FM)/05 HR ทรัพยากรมนุษย์/FM-HR-004 Rev.0 บรรยายลักษณะงาน.docx",
+      "kind": "word",
+      "inline": false,
+      "size": 332830,
+      "mtime": "2026-06-04"
+     }
+    ]
+   }
+  ],
+  "count": 50
+ },
+ {
+  "key": "swot",
+  "name": "SWOT / บริบทองค์กร",
+  "sub": "ปัจจัยภายใน-ภายนอก ผู้มีส่วนได้ส่วนเสีย ความเสี่ยงและโอกาส",
+  "icon": "🎯",
+  "groups": [
+   {
+    "label": "ระเบียบปฏิบัติที่เกี่ยวข้อง",
+    "items": [
+     {
+      "name": "1. QP-MR-001 Rev.0 การพิจารณาบริบทองค์กรและความเสี่ยง-โอกาส.doc",
+      "path": "docs/1 ระเบียบปฏิบัติ (QP)/01 QMR ฝ่ายบริหารคุณภาพ/1. QP-MR-001 Rev.0 การพิจารณาบริบทองค์กรและความเสี่ยง-โอกาส.doc",
+      "kind": "word",
+      "inline": false,
+      "size": 175104,
+      "mtime": "2026-06-04"
+     }
+    ]
+   },
+   {
+    "label": "แบบฟอร์มวิเคราะห์บริบทและความเสี่ยง",
+    "items": [
+     {
+      "name": "FM-MR-001 Rev.0 ตารางพิจารณาประเด็นภายในและภายนอก 23-4-69.xlsx",
+      "path": "docs/3 แบบฟอร์ม (FM)/01 QMR ฝ่ายบริหารคุณภาพ/FM-MR-001 Rev.0 ตารางพิจารณาประเด็นภายในและภายนอก 23-4-69.xlsx",
+      "kind": "excel",
+      "inline": false,
+      "size": 64855,
+      "mtime": "2026-06-04"
+     },
+     {
+      "name": "FM-MR-002 Rev.0 ตารางสรุปความเข้าใจ ความต้องการ และความคาดหวังของผู้มีส่วนร่วม-23-4-69.xlsx",
+      "path": "docs/3 แบบฟอร์ม (FM)/01 QMR ฝ่ายบริหารคุณภาพ/FM-MR-002 Rev.0 ตารางสรุปความเข้าใจ ความต้องการ และความคาดหวังของผู้มีส่วนร่วม-23-4-69.xlsx",
+      "kind": "excel",
+      "inline": false,
+      "size": 25754,
+      "mtime": "2026-06-04"
+     },
+     {
+      "name": "FM-MR-003 Rev.0 ความเสี่ยงและโอกาส Risk Assessment.xlsx",
+      "path": "docs/3 แบบฟอร์ม (FM)/01 QMR ฝ่ายบริหารคุณภาพ/FM-MR-003 Rev.0 ความเสี่ยงและโอกาส Risk Assessment.xlsx",
+      "kind": "excel",
+      "inline": false,
+      "size": 81812,
+      "mtime": "2026-06-04"
+     }
+    ]
+   }
+  ],
+  "count": 4
+ },
+ {
+  "key": "general",
+  "name": "ทั่วไป",
+  "sub": "ข้อกำหนดมาตรฐาน แผนงาน การอบรม และประเด็นค้าง",
+  "icon": "📚",
+  "groups": [
+   {
+    "label": "ข้อกำหนดมาตรฐานและแผนงาน ISO",
+    "items": [
+     {
+      "name": "2-Trainning Requiremment ISO9001-2015(consult).pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/แผนงานและข้อกำหนด/2-Trainning Requiremment ISO9001-2015(consult).pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 1921247,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "Form 03 Official Letter for Audit-BESTISO-THAI-Audit Plan 22 Nov 2022 ST2-K Garden and Fence.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/แผนงานและข้อกำหนด/Form 03 Official Letter for Audit-BESTISO-THAI-Audit Plan 22 Nov 2022 ST2-K Garden and Fence.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 213858,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "ISO9001-2015-FDIS-25July15 (ฉบับไทย - อังกฤ).pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/แผนงานและข้อกำหนด/ISO9001-2015-FDIS-25July15 (ฉบับไทย - อังกฤ).pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 1128005,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "Project Timeline (K Garden).xlsx",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/แผนงานและข้อกำหนด/Project Timeline (K Garden).xlsx",
+      "kind": "excel",
+      "inline": false,
+      "size": 254221,
+      "mtime": "2026-09-18"
+     }
+    ]
+   },
+   {
+    "label": "ประเด็นค้าง NC / OFI",
+    "items": [
+     {
+      "name": "Audit findings-2024.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/ประเด็นค้าง NC-OFI/Audit findings-2024.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 196133,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "Form 03 Official Letter for Audit-BESTISO-THAI-Audit Plan 11 Dec 2025 RA-K Garden and Fence.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/ประเด็นค้าง NC-OFI/Form 03 Official Letter for Audit-BESTISO-THAI-Audit Plan 11 Dec 2025 RA-K Garden and Fence.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 532427,
+      "mtime": "2026-09-18"
+     }
+    ]
+   },
+   {
+    "label": "ใบรับรองการอบรมพนักงาน",
+    "items": [
+     {
+      "name": "1.Certificate ISO9001 Req & IA - Withichai Tanthapruekpol.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/ใบรับรองการอบรม/1.Certificate ISO9001 Req & IA - Withichai Tanthapruekpol.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 243345,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "2.Certificate ISO9001 Req & IA - Kawin Tanthapruekpol.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/ใบรับรองการอบรม/2.Certificate ISO9001 Req & IA - Kawin Tanthapruekpol.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 243222,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "4.Certificate ISO9001 Req & IA - Natamon Jarusapha.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/ใบรับรองการอบรม/4.Certificate ISO9001 Req & IA - Natamon Jarusapha.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 243548,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "5.Certificate ISO9001 Req & IA - Keschaya Suwan.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/ใบรับรองการอบรม/5.Certificate ISO9001 Req & IA - Keschaya Suwan.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 243489,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "6.Certificate ISO9001 Req & IA - Thatsanee Panthong.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/ใบรับรองการอบรม/6.Certificate ISO9001 Req & IA - Thatsanee Panthong.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 243459,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "7.Certificate ISO9001 Req & IA 2566-Jenjira Sangsom.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/ใบรับรองการอบรม/7.Certificate ISO9001 Req & IA 2566-Jenjira Sangsom.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 243159,
+      "mtime": "2026-09-18"
+     },
+     {
+      "name": "ISO 9001-2015.pdf",
+      "path": "docs/5 ภาพรวมองค์กร/03 ทั่วไป/ใบรับรองการอบรม/ISO 9001-2015.pdf",
+      "kind": "pdf",
+      "inline": true,
+      "size": 312151,
+      "mtime": "2026-09-18"
+     }
+    ]
+   },
+   {
+    "label": "วัตถุประสงค์คุณภาพและ KPI",
+    "items": [
+     {
+      "name": "FM-MR-004 Rev.0 วัตถุประสงค์คุณภาพเชิงกลยุทธ์ (KPI) 04-12-68.xlsx",
+      "path": "docs/3 แบบฟอร์ม (FM)/01 QMR ฝ่ายบริหารคุณภาพ/FM-MR-004 Rev.0 วัตถุประสงค์คุณภาพเชิงกลยุทธ์ (KPI) 04-12-68.xlsx",
+      "kind": "excel",
+      "inline": false,
+      "size": 31125,
+      "mtime": "2026-06-04"
+     },
+     {
+      "name": "FM-MR-005 Rev.0 แผนการดำเนินการ Action Plan 10-12-66.xls",
+      "path": "docs/3 แบบฟอร์ม (FM)/01 QMR ฝ่ายบริหารคุณภาพ/FM-MR-005 Rev.0 แผนการดำเนินการ Action Plan 10-12-66.xls",
+      "kind": "excel",
+      "inline": false,
+      "size": 132608,
+      "mtime": "2026-06-04"
+     },
+     {
+      "name": "FM-MR-006 Rev.0 ตารางสรุป KPI ประจำเดือน 28-04-69.xlsx",
+      "path": "docs/3 แบบฟอร์ม (FM)/01 QMR ฝ่ายบริหารคุณภาพ/FM-MR-006 Rev.0 ตารางสรุป KPI ประจำเดือน 28-04-69.xlsx",
+      "kind": "excel",
+      "inline": false,
+      "size": 115403,
+      "mtime": "2026-06-04"
+     }
+    ]
+   }
+  ],
+  "count": 16
+ }
+]
