@@ -12,3 +12,6 @@ data/versions.db
 # editor/os
 .DS_Store
 Thumbs.db
+
+# deploy runtime logs
+deploy/logs/
