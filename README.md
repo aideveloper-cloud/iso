@@ -9,12 +9,18 @@ Svelte + Tailwind + Bun  (frontend, :5173)  ──►  Rust API (Axum, :8080)  �
         └───────────── ผ่าน Vite proxy ───────────────┴──►  Go converter (:8081)  (docx → HTML)
 ```
 - **Svelte + Tailwind CSS + Bun** — หน้าเว็บ (Vite dev server รันด้วย Bun); สไตล์ทั้งหมดใช้ Tailwind (ธีม/สีอยู่ใน `frontend/tailwind.config.js`)
-- **Rust (Axum)** — API หลัก: `/api/docs`, `/api/stats`, `/api/overview`, เวอร์ชัน+ลายเซ็นเก็บใน **PostgreSQL** (`/api/health` เช็ค DB + Go)
+- **Rust (Axum)** — API หลัก: `/api/docs`, `/api/stats`, `/api/overview`, `/api/actions` (CAR/DAR/PAR), เวอร์ชัน+ลายเซ็นเก็บใน **PostgreSQL** (`/api/health` เช็ค DB + Go)
 - **PostgreSQL** — ตาราง `versions` เก็บประวัติเวอร์ชัน + ลายเซ็นผู้แก้ไข (รันผ่าน Docker Compose)
 - **Go** — บริการแปลงเอกสาร: `/health`, `/convert` (docx → HTML)
 
 ## วิธีรัน
 **ดับเบิลคลิก `start-all.bat`** — เริ่ม PostgreSQL (Docker) + 3 บริการ แล้วเปิดเบราว์เซอร์ที่ http://localhost:5173
+
+### ใช้ในวง LAN
+Frontend เปิดรับจากทุก interface (`--host`) — เครื่องอื่นใน Wi‑Fi/LAN เดียวกันเข้าได้ที่:
+`http://<IP-เครื่องเซิร์ฟเวอร์>:5173`  
+(สคริปต์ `start-all.bat` จะพิมพ์ IP ให้ และพยายามเปิด Firewall พอร์ต 5173)  
+คำขอ `/api` ถูก proxy ผ่าน Vite ไปยัง API บนเครื่องเซิร์ฟเวอร์ ไม่ต้องเปิดพอร์ต 8080 ให้ LAN
 
 หรือรันแยกเอง:
 ```bash

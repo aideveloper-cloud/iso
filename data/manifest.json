@@ -399,9 +399,9 @@
   "deptName": "QMR ฝ่ายบริหารคุณภาพ",
   "rev": "Rev.0",
   "eff": "20/05/2565",
-  "file": "FM-MR-009 Rev.0 แบบรายงานสรุปผลการตรวจประเมิน (Audit Report).xls",
-  "path": "docs/3 แบบฟอร์ม (FM)/01 QMR ฝ่ายบริหารคุณภาพ/FM-MR-009 Rev.0 แบบรายงานสรุปผลการตรวจประเมิน (Audit Report).xls",
-  "ext": "xls",
+  "file": "FM-MR-009 Rev.0 แบบรายงานสรุปผลการตรวจประเมิน (Audit Report).xlsx",
+  "path": "docs/3 แบบฟอร์ม (FM)/01 QMR ฝ่ายบริหารคุณภาพ/FM-MR-009 Rev.0 แบบรายงานสรุปผลการตรวจประเมิน (Audit Report).xlsx",
+  "ext": "xlsx",
   "dup": 2,
   "unreg": false
  },
@@ -1159,6 +1159,7 @@
   "path": "docs/2 วิธีปฏิบัติงาน (WI)/06 PD ผลิต/WI-PD-06 Rev.0 เครื่องกดหยัก (ปริ้นท์ให้ที่โรงานกับโกดังด้วย) - Copy.docx",
   "ext": "docx",
   "dup": 1,
-  "unreg": false
+  "unreg": false,
+  "missing": true
  }
 ]

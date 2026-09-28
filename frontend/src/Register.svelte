@@ -1,21 +1,28 @@
 <script>
   import { createEventDispatcher } from 'svelte'
-  import { DEPTS, DEPTNAME } from './lib/const.js'
+  import { DEPTS, DEPTNAME, matchesQuery, sortByField } from './lib/const.js'
   import Icon from './Icon.svelte'
   export let docs = []
+  export let jump = { n: 0, type: '', dept: '', unreg: false }
   const dispatch = createEventDispatcher()
 
   const TYPES = ['QM', 'QP', 'WI', 'FM']
   const TYPE_LABEL = { QM: 'คู่มือคุณภาพ', QP: 'ระเบียบปฏิบัติ', WI: 'วิธีปฏิบัติงาน', FM: 'แบบฟอร์ม' }
 
   let q = '', activeType = 'all', fd = '', groupBy = 'type', sortKey = 'code', sortAsc = true
+  let onlyUnreg = false
+  let applied = 0
+  $: if (jump.n && jump.n !== applied) {
+    applied = jump.n
+    activeType = jump.type || 'all'
+    fd = jump.dept || ''
+    onlyUnreg = !!jump.unreg
+    q = ''
+  }
 
   function sortBy(k) { if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = true } }
-  function clearFilters() { q = ''; activeType = 'all'; fd = '' }
-  const sortRows = (rows) => rows.slice().sort((a, b) => {
-    const x = (a[sortKey] || '') + '', y = (b[sortKey] || '') + ''
-    return (x < y ? -1 : x > y ? 1 : 0) * (sortAsc ? 1 : -1)
-  })
+  function clearFilters() { q = ''; activeType = 'all'; fd = ''; onlyUnreg = false }
+  const sortRows = (rows) => sortByField(rows, sortKey, sortAsc)
 
   // จำนวนตามประเภท (จากทั้งหมด)
   $: typeCounts = TYPES.reduce((m, t) => { m[t] = docs.filter((d) => d.type === t).length; return m }, {})
@@ -24,9 +31,10 @@
   $: deptCounts = DEPTS.reduce((m, dp) => { m[dp] = deptBase.filter((d) => d.dept === dp).length; return m }, {})
 
   $: filtered = docs.filter((d) =>
-    (!q || d.code.toLowerCase().includes(q.toLowerCase()) || d.name.toLowerCase().includes(q.toLowerCase())) &&
+    matchesQuery(d, q) &&
     (activeType === 'all' || d.type === activeType) &&
-    (!fd || d.dept === fd))
+    (!fd || d.dept === fd) &&
+    (!onlyUnreg || d.unreg))
 
   // จัดกลุ่มตามแกนที่เลือก
   $: groups = groupBy === 'type'
@@ -37,7 +45,11 @@
         .map((dp) => ({ key: dp, kind: 'dept', label: DEPTNAME[dp], items: sortRows(filtered.filter((d) => d.dept === dp)) }))
         .filter((g) => g.items.length)
 
-  const hasFilter = () => q || activeType !== 'all' || fd
+  function rowClass(d) {
+    return ['clickrow', d.unreg && 'unreg', d.missing && 'missing'].filter(Boolean).join(' ')
+  }
+  const hasFilter = () => q || activeType !== 'all' || fd || onlyUnreg
+  function openDoc(code) { dispatch('open', code) }
 </script>
 
 <!-- แท็บประเภทเอกสาร -->
@@ -60,6 +72,7 @@
     <button class="gb-btn {groupBy === 'type' ? 'active' : ''}" on:click={() => (groupBy = 'type')}>ประเภท</button>
     <button class="gb-btn {groupBy === 'dept' ? 'active' : ''}" on:click={() => (groupBy = 'dept')}>แผนก</button>
   </div>
+  <label class="issue-toggle"><input type="checkbox" bind:checked={onlyUnreg} /> นอกทะเบียน</label>
   {#if hasFilter()}<button class="clearbtn inline-flex items-center gap-1.5" on:click={clearFilters}><Icon name="x" size={14} /> ล้างตัวกรอง</button>{/if}
 </div>
 
@@ -94,13 +107,13 @@
         </tr></thead>
         <tbody>
           {#each g.items as d (d.code)}
-            <tr class={d.unreg ? 'unreg' : ''}>
-              <td class="code">{d.code}{#if d.unreg} <span class="badge b-mut text-[9px]">นอกทะเบียน</span>{/if}</td>
-              <td>{d.name}{#if d.dup > 1}<br /><span class="dupwarn inline-flex items-center gap-1"><Icon name="alert-triangle" size={12} /> มีไฟล์เก่าซ้ำ {d.dup} ไฟล์ในแฟ้มต้นฉบับ</span>{/if}</td>
-              {#if groupBy !== 'type'}<td><span class="tag {d.type}" title="กรองตามประเภท {d.type}" on:click={() => (activeType = d.type)}>{d.type}</span></td>{/if}
-              {#if groupBy !== 'dept'}<td class="dept-cell" title="กรองตามแผนก" on:click={() => (fd = d.dept)}>{d.deptName}</td>{/if}
+            <tr class={rowClass(d)} on:click={() => openDoc(d.code)}>
+              <td class="code">{d.code}{#if d.unreg} <span class="badge b-mut text-[9px]">นอกทะเบียน</span>{/if}{#if d.missing} <span class="badge b-mut text-[9px]">ไฟล์หาย</span>{/if}</td>
+              <td>{d.name}{#if d.dup > 1}<br /><span class="dupwarn inline-flex items-center gap-1"><Icon name="alert-triangle" size={12} /> มีไฟล์เก่าซ้ำ {d.dup} ไฟล์ในแฟ้มต้นฉบับ</span>{/if}{#if d.missing}<br /><span class="dupwarn inline-flex items-center gap-1"><Icon name="alert-triangle" size={12} /> ต้นฉบับหาย — อัปโหลดเวอร์ชันใหม่เข้าสู่ระบบ</span>{/if}</td>
+              {#if groupBy !== 'type'}<td><span class="tag {d.type}" title="กรองตามประเภท {d.type}" on:click|stopPropagation={() => (activeType = d.type)}>{d.type}</span></td>{/if}
+              {#if groupBy !== 'dept'}<td class="dept-cell" title="กรองตามแผนก" on:click|stopPropagation={() => (fd = d.dept)}>{d.deptName}</td>{/if}
               <td>{d.rev}</td><td>{d.eff}</td>
-              <td><button class="open inline-flex items-center gap-1.5" on:click={() => dispatch('open', d.code)} title={d.file}><Icon name="file-text" size={14} /> เปิด / แก้ไข</button>{#if d.versionCount > 1}<span class="verpill" title="มี {d.versionCount} เวอร์ชัน">v{d.latestVersion}</span>{/if}</td>
+              <td><button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openDoc(d.code)} title={d.file}><Icon name="eye" size={14} /> เปิด / แก้ไข</button>{#if d.versionCount > 1}<span class="verpill" title="มี {d.versionCount} เวอร์ชัน">v{d.latestVersion}</span>{/if}</td>
             </tr>
           {/each}
         </tbody>

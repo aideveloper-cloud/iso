@@ -29,7 +29,7 @@ type S = Arc<AppState>;
 
 // ---------- helpers ----------
 fn ext_of(d: &Value) -> String { d["ext"].as_str().unwrap_or("").to_lowercase() }
-fn editable(e: &str) -> bool { e == "xls" || e == "xlsx" }
+fn editable(e: &str) -> bool { matches!(e, "xls" | "xlsx" | "docx") }
 fn previewable(e: &str) -> bool {
     matches!(e, "pdf" | "jpg" | "jpeg" | "png" | "docx" | "xls" | "xlsx")
 }
@@ -47,6 +47,68 @@ fn mime_of(e: &str) -> &'static str {
 }
 fn now_iso() -> String { chrono::Utc::now().to_rfc3339() }
 fn err(c: StatusCode, m: &str) -> Response { (c, Json(json!({ "error": m }))).into_response() }
+
+/// ชื่อไฟล์ใน storage ที่ปลอดภัย (ตัดอักขระพิเศษ)
+fn safe_stem(s: &str) -> String {
+    s.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c != '.', "_")
+}
+
+/// ถอดรหัส base64 จากคำขออัปโหลด/อัปเดท — ตรวจว่างและขนาด ≤ 40 MB
+fn decode_upload_bytes(data: Option<String>) -> Result<Vec<u8>, Response> {
+    let data = match data {
+        Some(d) if !d.is_empty() => d,
+        _ => return Err(err(StatusCode::BAD_REQUEST, "ไม่พบข้อมูลไฟล์")),
+    };
+    let bytes = match B64.decode(data.as_bytes()) {
+        Ok(x) => x,
+        Err(_) => return Err(err(StatusCode::BAD_REQUEST, "ข้อมูลไฟล์ไม่ถูกต้อง")),
+    };
+    if bytes.is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "ไฟล์ว่าง"));
+    }
+    if bytes.len() > 40 * 1024 * 1024 {
+        return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "ไฟล์ใหญ่เกิน 40 MB"));
+    }
+    Ok(bytes)
+}
+
+fn require_signer(name: Option<String>, empty_msg: &str) -> Result<String, Response> {
+    let name = name.unwrap_or_default();
+    if name.trim().is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, empty_msg));
+    }
+    Ok(name.trim().to_string())
+}
+
+fn norm_path(p: &str) -> String {
+    p.replace('\\', "/")
+}
+
+/// รหัสเอกสารสังเคราะห์สำหรับไฟล์ภาพรวมที่ยังไม่ขึ้นทะเบียน (เก็บเวอร์ชันในระบบ)
+fn ov_doc_code(rel: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    rel.hash(&mut h);
+    format!("OV:{:016x}", h.finish())
+}
+
+fn find_code_by_path(st: &S, rel: &str) -> Option<String> {
+    let want = norm_path(rel);
+    st.by_code.iter().find_map(|(code, d)| {
+        let path = d["path"].as_str().map(norm_path)?;
+        (path == want).then(|| code.clone())
+    })
+}
+
+async fn version_exists(st: &S, code: &str) -> bool {
+    let Ok(client) = st.db.get().await else { return false };
+    client
+        .query_one("SELECT COUNT(*) FROM versions WHERE doc_code=$1", &[&code])
+        .await
+        .map(|r| r.get::<_, i64>(0) > 0)
+        .unwrap_or(false)
+}
 fn pct(s: &str) -> String {
     let mut o = String::new();
     for b in s.bytes() {
@@ -69,9 +131,27 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS versions(
         signer_name TEXT NOT NULL, signer_role TEXT NOT NULL DEFAULT '',
         signed_at TEXT NOT NULL, created_at TEXT NOT NULL,
         UNIQUE(doc_code, version));
-     CREATE INDEX IF NOT EXISTS idx_v_doc ON versions(doc_code);";
+     CREATE INDEX IF NOT EXISTS idx_v_doc ON versions(doc_code);
+     CREATE TABLE IF NOT EXISTS actions(
+        id BIGSERIAL PRIMARY KEY,
+        ref_no TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '',
+        dept TEXT NOT NULL DEFAULT '',
+        doc_code TEXT NOT NULL DEFAULT '',
+        raised_by TEXT NOT NULL DEFAULT '',
+        assignee TEXT NOT NULL DEFAULT '',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        status TEXT NOT NULL DEFAULT 'open',
+        progress BIGINT NOT NULL DEFAULT 0,
+        due_date TEXT NOT NULL DEFAULT '',
+        action_taken TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT NOT NULL DEFAULT '');
+     CREATE INDEX IF NOT EXISTS idx_a_kind ON actions(kind);";
 
 const VCOLS: &str = "version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at";
+const ACOLS: &str = "id,ref_no,kind,title,detail,dept,doc_code,raised_by,assignee,priority,status,progress,due_date,action_taken,created_at,updated_at,closed_at";
 
 fn make_pool() -> Pool {
     let url = std::env::var("DATABASE_URL")
@@ -144,7 +224,14 @@ async fn migrate_from_sqlite(pool: &Pool, sqlite_path: &PathBuf) {
 }
 
 async fn ensure_original(st: &S, code: &str) {
-    let doc = match st.by_code.get(code) { Some(d) => d.clone(), None => return };
+    let Some(doc) = st.by_code.get(code) else { return };
+    let rel = doc["path"].as_str().unwrap_or("");
+    let filename = doc["file"].as_str().unwrap_or("");
+    let ext = ext_of(doc);
+    ensure_original_row(st, code, rel, filename, &ext).await;
+}
+
+async fn ensure_original_row(st: &S, code: &str, rel: &str, filename: &str, ext: &str) {
     let client = match st.db.get().await { Ok(c) => c, Err(_) => return };
     let maxv: i64 = client
         .query_one("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=$1", &[&code])
@@ -152,17 +239,68 @@ async fn ensure_original(st: &S, code: &str) {
         .map(|r| r.get(0))
         .unwrap_or(0);
     if maxv > 0 { return; }
-    let rel = doc["path"].as_str().unwrap_or("").to_string();
-    let size = fs::metadata(st.docs_root.join(&rel)).map(|m| m.len() as i64).unwrap_or(0);
+    let size = fs::metadata(st.docs_root.join(rel)).map(|m| m.len() as i64).unwrap_or(0);
     let now = now_iso();
-    let filename = doc["file"].as_str().unwrap_or("").to_string();
-    let ext = ext_of(&doc);
     let _ = client.execute(
         "INSERT INTO versions(doc_code,version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at)
          VALUES($1,1,$2,$3,NULL,$4,$5,'original','เวอร์ชันต้นฉบับจากแฟ้มเอกสาร','ระบบ (ต้นฉบับ)','',$6,$6)
          ON CONFLICT (doc_code,version) DO NOTHING",
         &[&code, &filename, &ext, &rel, &size, &now],
     ).await;
+}
+
+/// บันทึกไฟล์เป็นเวอร์ชันใหม่ใน storage + PostgreSQL
+/// ถ้ามี `origin_sync` จะเขียนทับต้นฉบับด้วย (ให้เปิดจากดิสก์แล้วเห็นเวอร์ชันล่าสุด)
+async fn save_new_version(
+    st: &S,
+    code: &str,
+    bytes: &[u8],
+    filename: &str,
+    ext: &str,
+    source: &str,
+    note: &str,
+    signer: &str,
+    role: &str,
+    origin_sync: Option<&std::path::Path>,
+) -> Result<(i64, Value), Response> {
+    let client = match st.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้")),
+    };
+    let version: i64 = client
+        .query_one("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=$1", &[&code])
+        .await
+        .map(|r| r.get::<_, i64>(0))
+        .unwrap_or(0)
+        + 1;
+    let stored = format!("{}__v{}.{}", safe_stem(code), version, ext);
+    if let Err(e) = fs::write(st.storage.join(&stored), bytes) {
+        return Err(err(StatusCode::INTERNAL_SERVER_ERROR, &format!("บันทึกไฟล์ในระบบไม่ได้: {e}")));
+    }
+    if let Some(origin) = origin_sync {
+        if let Some(parent) = origin.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if let Err(e) = fs::write(origin, bytes) {
+            // เวอร์ชันในระบบบันทึกแล้ว — แจ้งแต่ไม่ rollback
+            eprintln!("  ⚠ ซิงก์ต้นฉบับไม่ได้ ({}): {e}", origin.display());
+        }
+    }
+    let now = now_iso();
+    let size = bytes.len() as i64;
+    if let Err(e) = client.execute(
+        "INSERT INTO versions(doc_code,version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at)
+         VALUES($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11,$11)",
+        &[&code, &version, &filename, &ext, &stored, &size, &source, &note, &signer, &role, &now],
+    ).await {
+        return Err(err(StatusCode::INTERNAL_SERVER_ERROR, &format!("บันทึกเวอร์ชันในระบบไม่ได้: {e}")));
+    }
+    let sql = format!("SELECT {VCOLS} FROM versions WHERE doc_code=$1 AND version=$2");
+    let v = match client.query_one(&sql, &[&code, &version]).await {
+        Ok(r) => row_to_json(&r),
+        Err(_) => json!({ "version": version }),
+    };
+    Ok((version, v))
 }
 
 fn row_to_json(r: &tokio_postgres::Row) -> Value {
@@ -203,27 +341,57 @@ async fn resolve(st: &S, code: &str, v: Option<&String>) -> Result<(i64, PathBuf
     if !st.by_code.contains_key(code) { return Err(err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร")); }
     ensure_original(st, code).await;
     let client = match st.db.get().await { Ok(c) => c, Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้")) };
-    let row = if let Some(vv) = v {
+    if let Some(vv) = v {
         let vn: i64 = vv.parse().unwrap_or(0);
-        client.query_opt("SELECT version,ext,stored_name,origin_path,filename FROM versions WHERE doc_code=$1 AND version=$2", &[&code, &vn]).await
-    } else {
-        client.query_opt("SELECT version,ext,stored_name,origin_path,filename FROM versions WHERE doc_code=$1 ORDER BY version DESC LIMIT 1", &[&code]).await
+        let row = client.query_opt(
+            "SELECT version,ext,stored_name,origin_path,filename FROM versions WHERE doc_code=$1 AND version=$2",
+            &[&code, &vn],
+        ).await;
+        return match row {
+            Ok(Some(r)) => {
+                let ver: i64 = r.get(0);
+                let ext: String = r.get(1);
+                let stored: Option<String> = r.get(2);
+                let origin: Option<String> = r.get(3);
+                let filename: String = r.get(4);
+                let abs = version_abs(st, stored, origin, "");
+                if !abs.exists() {
+                    return Err(err(StatusCode::NOT_FOUND, "ไม่พบไฟล์ในระบบ — ต้นฉบับอาจหายจากดิสก์ หรือยังไม่ได้อัปโหลดเวอร์ชันเข้าสู่ระบบ"));
+                }
+                Ok((ver, abs, ext, filename))
+            }
+            _ => Err(err(StatusCode::NOT_FOUND, "ไม่พบเวอร์ชัน")),
+        };
+    }
+    // ล่าสุด: ไล่จากเวอร์ชันใหม่ → เก่า จนเจอไฟล์ที่มีจริง
+    let rows = match client
+        .query(
+            "SELECT version,ext,stored_name,origin_path,filename FROM versions WHERE doc_code=$1 ORDER BY version DESC",
+            &[&code],
+        )
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return Err(err(StatusCode::NOT_FOUND, "ไม่พบเวอร์ชัน")),
     };
-    match row {
-        Ok(Some(r)) => {
-            let ver: i64 = r.get(0);
-            let ext: String = r.get(1);
-            let stored: Option<String> = r.get(2);
-            let origin: Option<String> = r.get(3);
-            let filename: String = r.get(4);
-            let abs = match stored {
-                Some(s) => st.storage.join(s),
-                None => st.docs_root.join(origin.unwrap_or_default()),
-            };
-            if !abs.exists() { return Err(err(StatusCode::NOT_FOUND, "ไม่พบไฟล์ในระบบ")); }
-            Ok((ver, abs, ext, filename))
+    for r in rows {
+        let ver: i64 = r.get(0);
+        let ext: String = r.get(1);
+        let stored: Option<String> = r.get(2);
+        let origin: Option<String> = r.get(3);
+        let filename: String = r.get(4);
+        let abs = version_abs(st, stored, origin, "");
+        if abs.exists() {
+            return Ok((ver, abs, ext, filename));
         }
-        _ => Err(err(StatusCode::NOT_FOUND, "ไม่พบเวอร์ชัน")),
+    }
+    Err(err(StatusCode::NOT_FOUND, "ไม่พบไฟล์ในระบบ — ต้นฉบับอาจหายจากดิสก์ หรือยังไม่ได้อัปโหลดเวอร์ชันเข้าสู่ระบบ"))
+}
+
+fn version_abs(st: &S, stored: Option<String>, origin: Option<String>, fallback_rel: &str) -> PathBuf {
+    match stored {
+        Some(s) => st.storage.join(s),
+        None => st.docs_root.join(origin.unwrap_or_else(|| fallback_rel.to_string())),
     }
 }
 
@@ -264,11 +432,16 @@ async fn docs_list(State(st): State<S>) -> Json<Value> {
             let code = d["code"].as_str().unwrap_or("");
             let e = ext_of(d);
             let (latest, count) = counts.get(code).cloned().unwrap_or((1, 1));
+            let rel = d["path"].as_str().unwrap_or("");
+            let file_exists = !rel.is_empty() && st.docs_root.join(rel).exists();
+            let marked_missing = d["missing"].as_bool().unwrap_or(false);
             let mut o = d.clone();
             o["editable"] = json!(editable(&e));
             o["previewable"] = json!(previewable(&e));
             o["latestVersion"] = json!(latest);
             o["versionCount"] = json!(count);
+            o["fileExists"] = json!(file_exists);
+            o["missing"] = json!(marked_missing || !file_exists);
             o
         })
         .collect();
@@ -279,44 +452,185 @@ async fn versions(Path(code): Path<String>, State(st): State<S>) -> Response {
     let doc = match st.by_code.get(&code) { Some(d) => d.clone(), None => return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร") };
     ensure_original(&st, &code).await;
     let e = ext_of(&doc);
+    let rel = doc["path"].as_str().unwrap_or("");
+    let file_exists = !rel.is_empty() && st.docs_root.join(rel).exists();
     Json(json!({
         "code": code, "name": doc["name"], "ext": e,
         "editable": editable(&e), "previewable": previewable(&e),
+        "fileExists": file_exists,
+        "missing": doc["missing"].as_bool().unwrap_or(false) || !file_exists,
         "versions": list_versions(&st, &code).await,
     }))
     .into_response()
 }
 
-async fn content(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
-    let (ver, abs, ext, _fn) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
-    if ext == "xls" || ext == "xlsx" {
-        match fs::read(&abs) {
-            Ok(b) => Json(json!({ "kind": "sheet", "version": ver, "ext": ext, "data": B64.encode(b) })).into_response(),
-            Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("อ่านไฟล์ไม่ได้: {e}")),
+async fn preview_abs(st: &S, abs: &PathBuf, ext: &str) -> Value {
+    match ext {
+        "xls" | "xlsx" => match fs::read(abs) {
+            Ok(b) => json!({ "kind": "sheet", "ext": ext, "data": B64.encode(b) }),
+            Err(e) => json!({ "kind": "download", "ext": ext, "reason": format!("อ่านไฟล์ไม่ได้: {e}") }),
+        },
+        "docx" => {
+            let body = json!({ "path": abs.to_string_lossy(), "ext": "docx" }).to_string();
+            match call_converter(&st.conv_port, "/convert", &body).await {
+                Ok(v) if v["ok"] == json!(true) => json!({ "kind": "html", "ext": ext, "html": v["html"] }),
+                Ok(v) => json!({ "kind": "download", "ext": ext, "reason": format!("แปลงเอกสารไม่สำเร็จ: {}", v["error"].as_str().unwrap_or("ไม่ทราบสาเหตุ")) }),
+                Err(e) => json!({ "kind": "download", "ext": ext, "reason": format!("converter ไม่ตอบสนอง: {e}") }),
+            }
         }
-    } else if ext == "docx" {
-        let body = json!({ "path": abs.to_string_lossy(), "ext": "docx" }).to_string();
-        match call_converter(&st.conv_port, "/convert", &body).await {
-            Ok(v) if v["ok"] == json!(true) => Json(json!({ "kind": "html", "version": ver, "ext": ext, "html": v["html"] })).into_response(),
-            Ok(v) => Json(json!({ "kind": "download", "version": ver, "ext": ext, "reason": format!("แปลงเอกสารไม่สำเร็จ: {}", v["error"]) })).into_response(),
-            Err(e) => Json(json!({ "kind": "download", "version": ver, "ext": ext, "reason": format!("converter ไม่ตอบสนอง: {e}") })).into_response(),
-        }
-    } else if matches!(ext.as_str(), "pdf" | "jpg" | "jpeg" | "png") {
-        Json(json!({ "kind": "embed", "version": ver, "ext": ext })).into_response()
-    } else {
-        Json(json!({ "kind": "download", "version": ver, "ext": ext, "reason": "ไฟล์ชนิดนี้เปิดอ่านบนหน้าเว็บไม่ได้" })).into_response()
+        "pdf" | "jpg" | "jpeg" | "png" => json!({ "kind": "embed", "ext": ext }),
+        _ => json!({ "kind": "download", "ext": ext, "reason": "ไฟล์ชนิดนี้เปิดอ่านบนหน้าเว็บไม่ได้ — กดดาวน์โหลดเพื่อเปิดด้วยโปรแกรมในเครื่อง" }),
     }
 }
 
-async fn file(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
-    let (_v, abs, ext, filename) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
+fn resolve_overview_path(st: &S, rel: &str) -> Result<(PathBuf, String, String), Response> {
+    if rel.is_empty() { return Err(err(StatusCode::BAD_REQUEST, "ไม่ระบุไฟล์")); }
+    if rel.contains("..") { return Err(err(StatusCode::BAD_REQUEST, "พาธไม่ถูกต้อง")); }
+    let abs = st.docs_root.join(rel);
+    let base = norm_path(&st.docs_root.to_string_lossy()).to_lowercase();
+    let target = norm_path(&abs.to_string_lossy()).to_lowercase();
+    if !target.starts_with(&base) { return Err(err(StatusCode::BAD_REQUEST, "พาธไม่ถูกต้อง")); }
+    let ext = abs.extension().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let name = abs.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    Ok((abs, ext, name))
+}
+
+/// รหัสเอกสารสำหรับพาธภาพรวม: ใช้รหัสในทะเบียนถ้ามี ไม่งั้นใช้ OV:<hash>
+async fn overview_doc_code(st: &S, rel: &str, abs: &PathBuf, name: &str, ext: &str) -> Result<String, Response> {
+    if let Some(c) = find_code_by_path(st, rel) {
+        ensure_original(st, &c).await;
+        return Ok(c);
+    }
+    let c = ov_doc_code(rel);
+    if !abs.exists() && !version_exists(st, &c).await {
+        return Err(err(StatusCode::NOT_FOUND, "ไม่พบไฟล์"));
+    }
+    ensure_original_row(st, &c, rel, name, ext).await;
+    Ok(c)
+}
+
+/// เลือกไฟล์ล่าสุดในระบบสำหรับพาธภาพรวม (เวอร์ชันใน storage มาก่อน ต้นฉบับบนดิสก์เป็นรอง)
+async fn overview_live_file(st: &S, rel: &str) -> Result<(PathBuf, String, String, Option<String>, Option<i64>), Response> {
+    let (abs, ext, name) = resolve_overview_path(st, rel)?;
+    let code = match find_code_by_path(st, rel) {
+        Some(c) => {
+            ensure_original(st, &c).await;
+            c
+        }
+        None => ov_doc_code(rel),
+    };
+    let client = match st.db.get().await {
+        Ok(c) => c,
+        Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้")),
+    };
+    if let Ok(rows) = client
+        .query(
+            "SELECT version,ext,stored_name,origin_path,filename FROM versions WHERE doc_code=$1 ORDER BY version DESC",
+            &[&code],
+        )
+        .await
+    {
+        for r in rows {
+            let ver: i64 = r.get(0);
+            let vext: String = r.get(1);
+            let stored: Option<String> = r.get(2);
+            let origin: Option<String> = r.get(3);
+            let filename: String = r.get(4);
+            let live = version_abs(st, stored, origin, rel);
+            if live.exists() {
+                return Ok((live, vext, filename, Some(code), Some(ver)));
+            }
+        }
+    }
+    if !abs.exists() {
+        return Err(err(StatusCode::NOT_FOUND, "ไม่พบไฟล์"));
+    }
+    Ok((abs, ext, name, Some(code), None))
+}
+
+async fn overview_file(Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
+    let rel = q.get("path").cloned().unwrap_or_default();
+    let (abs, ext, name, _, _) = match overview_live_file(&st, &rel).await { Ok(x) => x, Err(r) => return r };
     let bytes = match fs::read(&abs) { Ok(b) => b, Err(_) => return err(StatusCode::NOT_FOUND, "อ่านไฟล์ไม่ได้") };
     let disp = if q.get("dl").map(|s| s == "1").unwrap_or(false) { "attachment" } else { "inline" };
     Response::builder()
         .header(header::CONTENT_TYPE, mime_of(&ext))
-        .header(header::CONTENT_DISPOSITION, format!("{disp}; filename*=UTF-8''{}", pct(&filename)))
+        .header(header::CONTENT_DISPOSITION, format!("{disp}; filename*=UTF-8''{}", pct(&name)))
         .body(Body::from(bytes))
         .unwrap()
+}
+
+async fn overview_content(Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
+    let rel = q.get("path").cloned().unwrap_or_default();
+    let (abs, ext, name, code, ver) = match overview_live_file(&st, &rel).await { Ok(x) => x, Err(r) => return r };
+    let mut body = preview_abs(&st, &abs, &ext).await;
+    body["name"] = json!(name);
+    body["path"] = json!(rel);
+    body["editable"] = json!(editable(&ext));
+    if let Some(c) = code { body["docCode"] = json!(c); }
+    if let Some(v) = ver { body["version"] = json!(v); }
+    Json(body).into_response()
+}
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct OverviewSaveReq {
+    path: Option<String>,
+    dataBase64: Option<String>,
+    signerName: Option<String>,
+    signerRole: Option<String>,
+    note: Option<String>,
+}
+
+async fn overview_save(State(st): State<S>, Json(b): Json<OverviewSaveReq>) -> Response {
+    let rel = b.path.unwrap_or_default();
+    let (abs, ext, name) = match resolve_overview_path(&st, &rel) {
+        Ok(x) => x,
+        Err(r) => return r,
+    };
+    if !editable(&ext) {
+        return err(StatusCode::BAD_REQUEST, "ไฟล์ชนิดนี้แก้ไขบนหน้าเว็บไม่ได้");
+    }
+    let code = match overview_doc_code(&st, &rel, &abs, &name, &ext).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let signer = match require_signer(b.signerName, "ต้องลงชื่อผู้แก้ไขก่อนอัปเดท") {
+        Ok(n) => n,
+        Err(r) => return r,
+    };
+    let bytes = match decode_upload_bytes(b.dataBase64) {
+        Ok(x) => x,
+        Err(r) => return r,
+    };
+    let note = b.note.unwrap_or_default().trim().to_string();
+    let role = b.signerRole.unwrap_or_default().trim().to_string();
+    let filename = st
+        .by_code
+        .get(&code)
+        .and_then(|d| d["file"].as_str())
+        .unwrap_or(&name)
+        .to_string();
+
+    // บันทึกเวอร์ชันในระบบ + ซิงก์ต้นฉบับบนดิสก์
+    let (version, v) = match save_new_version(
+        &st, &code, &bytes, &filename, &ext, "edit", &note, &signer, &role, Some(abs.as_path()),
+    ).await {
+        Ok(x) => x,
+        Err(r) => return r,
+    };
+
+    Json(json!({
+        "ok": true,
+        "inSystem": true,
+        "path": rel,
+        "name": name,
+        "ext": ext,
+        "size": bytes.len(),
+        "code": code,
+        "version": v,
+        "latestVersion": version,
+    })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -332,14 +646,19 @@ struct SaveReq {
 }
 
 async fn save(Path(code): Path<String>, State(st): State<S>, Json(b): Json<SaveReq>) -> Response {
-    let doc = match st.by_code.get(&code) { Some(d) => d.clone(), None => return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร") };
+    let doc = match st.by_code.get(&code) {
+        Some(d) => d.clone(),
+        None => return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร"),
+    };
     ensure_original(&st, &code).await;
-    let name = b.signerName.unwrap_or_default();
-    if name.trim().is_empty() { return err(StatusCode::BAD_REQUEST, "ต้องลงชื่อผู้แก้ไขก่อนบันทึก"); }
-    let data = match b.dataBase64 { Some(d) if !d.is_empty() => d, _ => return err(StatusCode::BAD_REQUEST, "ไม่พบข้อมูลไฟล์") };
-    let bytes = match B64.decode(data.as_bytes()) { Ok(x) => x, Err(_) => return err(StatusCode::BAD_REQUEST, "ข้อมูลไฟล์ไม่ถูกต้อง") };
-    if bytes.is_empty() { return err(StatusCode::BAD_REQUEST, "ไฟล์ว่าง"); }
-    if bytes.len() > 40 * 1024 * 1024 { return err(StatusCode::PAYLOAD_TOO_LARGE, "ไฟล์ใหญ่เกิน 40 MB"); }
+    let name = match require_signer(b.signerName, "ต้องลงชื่อผู้แก้ไขก่อนบันทึก") {
+        Ok(n) => n,
+        Err(r) => return r,
+    };
+    let bytes = match decode_upload_bytes(b.dataBase64) {
+        Ok(x) => x,
+        Err(r) => return r,
+    };
     let safe_ext: String = b
         .ext
         .unwrap_or_else(|| ext_of(&doc))
@@ -349,38 +668,115 @@ async fn save(Path(code): Path<String>, State(st): State<S>, Json(b): Json<SaveR
         .collect();
     let filename = b.filename.unwrap_or_else(|| doc["file"].as_str().unwrap_or("").to_string());
     let source = if b.source.as_deref() == Some("edit") { "edit" } else { "upload" };
-    let note = b.note.unwrap_or_default();
-    let role = b.signerRole.unwrap_or_default();
+    let note = b.note.unwrap_or_default().trim().to_string();
+    let role = b.signerRole.unwrap_or_default().trim().to_string();
 
-    let client = match st.db.get().await { Ok(c) => c, Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
-    let version: i64 = client
-        .query_one("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=$1", &[&code])
-        .await
-        .map(|r| r.get::<_, i64>(0))
-        .unwrap_or(0)
-        + 1;
-    let stored: String = format!("{}__v{}.{}", code.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c != '.', "_"), version, safe_ext);
-    if let Err(e) = fs::write(st.storage.join(&stored), &bytes) {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("บันทึกไฟล์ไม่ได้: {e}"));
-    }
-    let now = now_iso();
-    let size = bytes.len() as i64;
-    let note_t = note.trim().to_string();
-    let name_t = name.trim().to_string();
-    let role_t = role.trim().to_string();
-    if let Err(e) = client.execute(
-        "INSERT INTO versions(doc_code,version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at)
-         VALUES($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11,$11)",
-        &[&code, &version, &filename, &safe_ext, &stored, &size, &source, &note_t, &name_t, &role_t, &now],
-    ).await {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("บันทึกเวอร์ชันไม่ได้: {e}"));
-    }
-    let sql = format!("SELECT {VCOLS} FROM versions WHERE doc_code=$1 AND version=$2");
-    let v = match client.query_one(&sql, &[&code, &version]).await {
-        Ok(r) => row_to_json(&r),
-        Err(_) => json!({ "version": version }),
+    let origin = {
+        let rel = doc["path"].as_str().unwrap_or("");
+        let p = st.docs_root.join(rel);
+        if rel.is_empty() { None } else { Some(p) }
     };
-    Json(json!({ "ok": true, "version": v })).into_response()
+    match save_new_version(
+        &st, &code, &bytes, &filename, &safe_ext, source, &note, &name, &role,
+        origin.as_deref(),
+    ).await {
+        Ok((_, v)) => Json(json!({ "ok": true, "version": v, "inSystem": true })).into_response(),
+        Err(r) => r,
+    }
+}
+
+// ---------- CAR / DAR / PAR (ใบร้องขอดำเนินการ) ----------
+fn action_to_json(r: &tokio_postgres::Row) -> Value {
+    json!({
+        "id": r.get::<_, i64>(0), "refNo": r.get::<_, String>(1), "kind": r.get::<_, String>(2),
+        "title": r.get::<_, String>(3), "detail": r.get::<_, String>(4), "dept": r.get::<_, String>(5),
+        "docCode": r.get::<_, String>(6), "raisedBy": r.get::<_, String>(7), "assignee": r.get::<_, String>(8),
+        "priority": r.get::<_, String>(9), "status": r.get::<_, String>(10), "progress": r.get::<_, i64>(11),
+        "dueDate": r.get::<_, String>(12), "actionTaken": r.get::<_, String>(13),
+        "createdAt": r.get::<_, String>(14), "updatedAt": r.get::<_, String>(15), "closedAt": r.get::<_, String>(16),
+    })
+}
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct ActionCreate {
+    kind: String, title: String,
+    detail: Option<String>, dept: Option<String>, docCode: Option<String>,
+    raisedBy: Option<String>, assignee: Option<String>, priority: Option<String>, dueDate: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+struct ActionUpdate {
+    status: Option<String>, progress: Option<i64>, actionTaken: Option<String>,
+    assignee: Option<String>, dueDate: Option<String>, priority: Option<String>, title: Option<String>, detail: Option<String>,
+}
+
+async fn actions_list(State(st): State<S>) -> Response {
+    let client = match st.db.get().await { Ok(c) => c, Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
+    let sql = format!("SELECT {ACOLS} FROM actions ORDER BY created_at DESC");
+    match client.query(&sql, &[]).await {
+        Ok(rows) => Json(Value::Array(rows.iter().map(action_to_json).collect())).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("อ่านรายการไม่ได้: {e}")),
+    }
+}
+
+async fn action_create(State(st): State<S>, Json(b): Json<ActionCreate>) -> Response {
+    let kind = b.kind.to_uppercase();
+    if !matches!(kind.as_str(), "CAR" | "DAR" | "PAR") { return err(StatusCode::BAD_REQUEST, "ประเภทต้องเป็น CAR/DAR/PAR"); }
+    if b.title.trim().is_empty() { return err(StatusCode::BAD_REQUEST, "ต้องระบุเรื่อง"); }
+    let client = match st.db.get().await { Ok(c) => c, Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
+    // เลขที่ใบ: KIND-<พ.ศ.>-<ลำดับ 3 หลัก>
+    let year_be = chrono::Utc::now().format("%Y").to_string().parse::<i64>().unwrap_or(2025) + 543;
+    let prefix = format!("{}-{}-", kind, year_be);
+    let seq: i64 = client
+        .query_one("SELECT COUNT(*) FROM actions WHERE ref_no LIKE $1", &[&format!("{}%", prefix)])
+        .await.map(|r| r.get::<_, i64>(0)).unwrap_or(0) + 1;
+    let ref_no = format!("{}{:03}", prefix, seq);
+    let now = now_iso();
+    let detail = b.detail.unwrap_or_default();
+    let dept = b.dept.unwrap_or_default();
+    let doc_code = b.docCode.unwrap_or_default();
+    let raised_by = b.raisedBy.unwrap_or_default();
+    let assignee = b.assignee.unwrap_or_default();
+    let priority = b.priority.unwrap_or_else(|| "medium".into());
+    let due = b.dueDate.unwrap_or_default();
+    let sql = format!(
+        "INSERT INTO actions(ref_no,kind,title,detail,dept,doc_code,raised_by,assignee,priority,status,progress,due_date,action_taken,created_at,updated_at,closed_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',0,$10,'',$11,$11,'') RETURNING {ACOLS}");
+    match client.query_one(&sql, &[&ref_no, &kind, &b.title.trim().to_string(), &detail, &dept, &doc_code, &raised_by, &assignee, &priority, &due, &now]).await {
+        Ok(r) => Json(json!({ "ok": true, "action": action_to_json(&r) })).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("เปิดใบไม่สำเร็จ: {e}")),
+    }
+}
+
+async fn action_update(Path(id): Path<i64>, State(st): State<S>, Json(b): Json<ActionUpdate>) -> Response {
+    let client = match st.db.get().await { Ok(c) => c, Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
+    let cur = match client.query_opt(&format!("SELECT {ACOLS} FROM actions WHERE id=$1"), &[&id]).await {
+        Ok(Some(r)) => action_to_json(&r), _ => return err(StatusCode::NOT_FOUND, "ไม่พบใบนี้"),
+    };
+    let status = b.status.unwrap_or_else(|| cur["status"].as_str().unwrap_or("open").to_string());
+    if !matches!(status.as_str(), "open" | "in_progress" | "closed") { return err(StatusCode::BAD_REQUEST, "สถานะไม่ถูกต้อง"); }
+    let mut progress = b.progress.unwrap_or_else(|| cur["progress"].as_i64().unwrap_or(0));
+    if status == "closed" { progress = 100; }
+    progress = progress.clamp(0, 100);
+    let action_taken = b.actionTaken.unwrap_or_else(|| cur["actionTaken"].as_str().unwrap_or("").to_string());
+    let assignee = b.assignee.unwrap_or_else(|| cur["assignee"].as_str().unwrap_or("").to_string());
+    let due = b.dueDate.unwrap_or_else(|| cur["dueDate"].as_str().unwrap_or("").to_string());
+    let priority = b.priority.unwrap_or_else(|| cur["priority"].as_str().unwrap_or("medium").to_string());
+    let title = b.title.unwrap_or_else(|| cur["title"].as_str().unwrap_or("").to_string());
+    let detail = b.detail.unwrap_or_else(|| cur["detail"].as_str().unwrap_or("").to_string());
+    let now = now_iso();
+    let closed_at = if status == "closed" {
+        let prev = cur["closedAt"].as_str().unwrap_or("");
+        if prev.is_empty() { now.clone() } else { prev.to_string() }
+    } else { String::new() };
+    let sql = format!(
+        "UPDATE actions SET status=$2,progress=$3,action_taken=$4,assignee=$5,due_date=$6,priority=$7,title=$8,detail=$9,updated_at=$10,closed_at=$11 WHERE id=$1 RETURNING {ACOLS}");
+    match client.query_one(&sql, &[&id, &status, &progress, &action_taken, &assignee, &due, &priority, &title, &detail, &now, &closed_at]).await {
+        Ok(r) => Json(json!({ "ok": true, "action": action_to_json(&r) })).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("อัปเดตไม่สำเร็จ: {e}")),
+    }
 }
 
 async fn stats(State(st): State<S>) -> Json<Value> {
@@ -451,20 +847,20 @@ async fn stats(State(st): State<S>) -> Json<Value> {
 
 async fn overview(State(st): State<S>) -> Json<Value> { Json(st.overview.clone()) }
 
-async fn overview_file(Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
-    let rel = q.get("path").cloned().unwrap_or_default();
-    let abs = st.docs_root.join(&rel);
-    // กันหลุดออกนอก docs_root
-    let base = st.docs_root.to_string_lossy().replace('\\', "/");
-    let target = abs.to_string_lossy().replace('\\', "/");
-    if !target.starts_with(&base) || !abs.exists() { return err(StatusCode::NOT_FOUND, "ไม่พบไฟล์"); }
-    let ext = abs.extension().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+async fn content(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
+    let (ver, abs, ext, _fn) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
+    let mut body = preview_abs(&st, &abs, &ext).await;
+    body["version"] = json!(ver);
+    Json(body).into_response()
+}
+
+async fn file(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
+    let (_v, abs, ext, filename) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
     let bytes = match fs::read(&abs) { Ok(b) => b, Err(_) => return err(StatusCode::NOT_FOUND, "อ่านไฟล์ไม่ได้") };
-    let name = abs.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     let disp = if q.get("dl").map(|s| s == "1").unwrap_or(false) { "attachment" } else { "inline" };
     Response::builder()
         .header(header::CONTENT_TYPE, mime_of(&ext))
-        .header(header::CONTENT_DISPOSITION, format!("{disp}; filename*=UTF-8''{}", pct(&name)))
+        .header(header::CONTENT_DISPOSITION, format!("{disp}; filename*=UTF-8''{}", pct(&filename)))
         .body(Body::from(bytes))
         .unwrap()
 }
@@ -496,8 +892,12 @@ async fn main() {
         .route("/api/docs/:code/content", get(content))
         .route("/api/docs/:code/file", get(file))
         .route("/api/stats", get(stats))
+        .route("/api/actions", get(actions_list).post(action_create))
+        .route("/api/actions/:id", axum::routing::put(action_update))
         .route("/api/overview", get(overview))
         .route("/api/overview/file", get(overview_file))
+        .route("/api/overview/content", get(overview_content))
+        .route("/api/overview/save", axum::routing::post(overview_save))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .with_state(state);
 
