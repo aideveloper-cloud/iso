@@ -78,6 +78,14 @@ export const api = {
   action: (id) => send(`/api/actions/${id}`).then((r) => r.json()),
   actionUpdate: (id, version, fields) => postJson(`/api/actions/${id}`, { version, fields }, 'PUT'),
   actionAct: (id, version, action, comment, pin, effective) => postJson(`/api/actions/${id}/act`, { version, action, comment, pin, effective }),
+  // การแจกจ่ายและรับทราบเอกสาร (7.5.3)
+  acksMine: () => send('/api/acks/mine').then((r) => r.json()),
+  acksOverview: (status) => send('/api/acks' + (status ? '?status=' + status : '')).then((r) => r.json()),
+  acksBulk: (codes) => postJson('/api/acks/bulk', { codes }),
+  ackSign: (id, pin, comment) => postJson(`/api/acks/${id}/ack`, { pin, comment }),
+  docAcks: (code) => send(`/api/docs/${encodeURIComponent(code)}/acks`).then((r) => r.json()),
+  docDistribution: (code, targets) => postJson(`/api/docs/${encodeURIComponent(code)}/distribution`, { targets }, 'PUT'),
+  docAckRequest: (code) => postJson(`/api/docs/${encodeURIComponent(code)}/acks/request`, {}),
   // ตรวจติดตามภายใน (9.2)
   iaList: (year) => send('/api/ia' + (year ? '?year=' + year : '')).then((r) => r.json()),
   iaCreate: (fields) => postJson('/api/ia', fields),

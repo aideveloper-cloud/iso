@@ -319,7 +319,8 @@ pub async fn logout(State(st): State<S>, req: Request<Body>) -> Response {
 pub async fn me(State(st): State<S>, Extension(u): Extension<AuthUser>, headers: axum::http::HeaderMap) -> Response {
     let pending = pending_count(&st, &u).await;
     let pending_docs = crate::doccontrol::pending_count(&st, &u).await;
-    let body = Json(json!({ "user": user_json(&u), "pending": pending, "pendingDocs": pending_docs }));
+    let pending_acks = crate::acks::pending_count(&st, &u).await;
+    let body = Json(json!({ "user": user_json(&u), "pending": pending, "pendingDocs": pending_docs, "pendingAcks": pending_acks }));
     // เซสชันที่ login ก่อนเปลี่ยนมาใช้คุกกี้: ออกคุกกี้ให้จาก Bearer token เดิม (อายุไม่เกินเวลาที่เหลือของเซสชัน)
     let bearer = headers.get("authorization").and_then(|h| h.to_str().ok()).and_then(|h| h.strip_prefix("Bearer ")).unwrap_or("").trim().to_string();
     if !bearer.is_empty() && cookie_token(&headers) != bearer {

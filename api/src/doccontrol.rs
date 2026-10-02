@@ -410,6 +410,8 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
         match crate::save_new_version(&st, &nv, &bytes, origin.as_deref()).await {
             Ok((version, _)) => {
                 let _ = client.execute("UPDATE doc_changes SET version=$2,closed_at=$3 WHERE id=$1", &[&id, &version, &now]).await;
+                // แจกจ่าย Rev. ใหม่: ส่งคำขอรับทราบให้ทุกคนในรายชื่อ (7.5.3)
+                crate::acks::on_effective(&st, &client, &code, version, ch["newRev"].as_str().unwrap_or(""), &u.name).await;
             }
             Err(r) => {
                 let _ = client.execute("UPDATE doc_changes SET status='approve',updated_at=$2 WHERE id=$1", &[&id, &now]).await;
@@ -555,6 +557,7 @@ pub async fn obsolete(Path(code): Path<String>, State(st): State<S>, Extension(u
     }
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
     set_status(&client, &code, "obsolete", &reason, &u).await;
+    crate::acks::on_obsolete(&client, &code).await;
     let _ = eform::audit(&client, &u, "doc_obsolete", "document", &code, &reason).await;
     Json(json!({ "ok": true })).into_response()
 }
@@ -568,6 +571,7 @@ pub async fn reinstate(Path(code): Path<String>, State(st): State<S>, Extension(
     let Ok(client) = st.db.get().await else { return db_err() };
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
     set_status(&client, &code, "active", &reason, &u).await;
+    crate::acks::on_reinstate(&st, &client, &code, &u.name).await;
     let _ = eform::audit(&client, &u, "doc_reinstate", "document", &code, &reason).await;
     Json(json!({ "ok": true })).into_response()
 }

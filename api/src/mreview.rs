@@ -388,6 +388,13 @@ async fn system_records(st: &S, c: &impl deadpool_postgres::GenericClient, meeti
                 format!("ผู้เข้าอบรม {n} คน · ล่าสุด {}", r.get::<_, String>(3)), vec![ev(&ref_no, "ใบรายชื่อผู้เข้าอบรม (FM-HR-008)")]));
         }
     }
+    // การรับรู้ (7.3): อัตราการรับทราบเอกสารฉบับปัจจุบัน
+    let ak = crate::acks::facts(st, c).await;
+    if ak["total"].as_i64().unwrap_or(0) > 0 {
+        let overdue = ak["overdue"].as_i64().unwrap_or(0);
+        resources.push(rec("SYS-ACK".into(), format!("การรับทราบเอกสาร {}%", ak["rate"]), String::new(), if overdue > 0 { "attention" } else { "good" },
+            format!("รับทราบแล้ว {}/{} · เลยกำหนด {overdue} คำขอ", ak["acknowledged"], ak["total"]), vec![ev("ACK", "เมนู การรับทราบเอกสาร")]));
+    }
     out.push(("resources".into(), resources));
     out
 }

@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, fs, net::TcpStream, path::PathBuf, sync::{Arc, Mutex}, time::Duration};
 use tokio_postgres::NoTls;
 
+mod acks;
 mod audittrail;
 mod capa;
 mod doccontrol;
@@ -181,6 +182,7 @@ async fn init_db(pool: &Pool) {
                 client.batch_execute(mreview::SCHEMA).await.expect("สร้างตารางทบทวนฝ่ายบริหารไม่สำเร็จ");
                 client.batch_execute(capa::SCHEMA).await.expect("ปรับตาราง CAR/DAR/PAR ไม่สำเร็จ");
                 client.batch_execute(internalaudit::SCHEMA).await.expect("สร้างตารางตรวจติดตามภายในไม่สำเร็จ");
+                client.batch_execute(acks::SCHEMA).await.expect("สร้างตารางการรับทราบเอกสารไม่สำเร็จ");
                 return;
             }
             Err(e) => {
@@ -846,15 +848,17 @@ async fn latest_by_doc(st: &S) -> HashMap<String, Value> {
     m
 }
 
-async fn content(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
+async fn content(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>, Extension(u): Extension<eform::AuthUser>) -> Response {
     let (ver, abs, ext, _fn) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
+    acks::mark_opened(&st, &u, &code, ver).await;
     let mut body = preview_abs(&st, &abs, &ext).await;
     body["version"] = json!(ver);
     Json(body).into_response()
 }
 
-async fn file(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
+async fn file(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>, Extension(u): Extension<eform::AuthUser>) -> Response {
     let (v, abs, ext, filename) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
+    acks::mark_opened(&st, &u, &code, v).await;
     let bytes = match fs::read(&abs) { Ok(b) => b, Err(_) => return err(StatusCode::NOT_FOUND, "อ่านไฟล์ไม่ได้") };
     // กันการนำไปใช้โดยไม่ตั้งใจ (7.5.3.2 d): ไฟล์ที่ไม่ใช่ฉบับใช้งานปัจจุบันติดป้ายไว้ที่ชื่อไฟล์
     let filename = doccontrol::download_name(&st, &code, v, &filename).await;
@@ -933,6 +937,13 @@ async fn main() {
         .route("/api/actions/:id", get(capa::get).put(capa::update))
         .route("/api/actions/:id/act", axum::routing::post(capa::act))
         .route("/api/audit-log", get(audittrail::list))
+        .route("/api/acks", get(acks::overview))
+        .route("/api/acks/mine", get(acks::mine))
+        .route("/api/acks/bulk", axum::routing::post(acks::request_bulk))
+        .route("/api/acks/:id/ack", axum::routing::post(acks::acknowledge))
+        .route("/api/docs/:code/acks", get(acks::doc))
+        .route("/api/docs/:code/acks/request", axum::routing::post(acks::request))
+        .route("/api/docs/:code/distribution", axum::routing::put(acks::set_distribution))
         .route("/api/ia", get(internalaudit::list).post(internalaudit::create))
         .route("/api/ia/auditors", axum::routing::post(internalaudit::set_auditor))
         .route("/api/ia/:id", get(internalaudit::get).put(internalaudit::update))

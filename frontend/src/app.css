@@ -455,6 +455,10 @@
   @media (max-width: 800px) { .capa-grid { grid-template-columns: 1fr; } }
   .ver-last { @apply text-[10.5px] text-mut leading-tight mt-1; }
   .ver-last-inline { @apply text-[11px] text-mut ml-2; }
+  .ack-banner { @apply flex items-center gap-[10px] rounded-lg px-3 py-[10px] text-[12.5px] mb-3; background: #e6ecf6; border: 1px solid #c9d6ea; color: theme(colors.brand.DEFAULT); }
+  .ack-banner > span { @apply flex-1; }
+  .ack-banner .vw-btn { @apply flex-shrink-0 rounded-md px-3 py-[5px] font-sans text-[12px] font-bold cursor-pointer bg-brand text-white border-0; }
+  .ack-banner .vw-btn:disabled { @apply opacity-50 cursor-not-allowed; }
   /* ตรวจติดตามภายใน */
   .status-badge.ia-planned { background: #eef1f6; color: theme(colors.mut); }
   .status-badge.ia-in_progress { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }

@@ -10,6 +10,7 @@
   import Changes from './Changes.svelte'
   import ManagementReview from './ManagementReview.svelte'
   import InternalAudit from './InternalAudit.svelte'
+  import Acks from './Acks.svelte'
   import Users from './Users.svelte'
   import AuditTrail from './AuditTrail.svelte'
   import Forms from './Forms.svelte'
@@ -20,12 +21,13 @@
   import FilePreview from './FilePreview.svelte'
   import Icon from './Icon.svelte'
 
-  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia']
+  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack']
   let tab = 'dash'
   let docs = [], overview = []
   let openCode = null
   let openChangeId = null // เปิด DocViewer ที่คำขอเปลี่ยนแปลงใบนี้
   let pendingDocs = 0
+  let pendingAcks = 0
   let dcrRefresh = 0
   let ovRefresh = 0
   let ovFile = null
@@ -48,6 +50,7 @@
     ] },
     { group: 'ติดตามงาน', items: [
       ['dcr', 'clipboard-check', 'คำขอเปลี่ยนแปลงเอกสาร'],
+      ['ack', 'circle-check', 'การรับทราบเอกสาร'],
       ['forms', 'clipboard-list', 'บันทึกแบบฟอร์ม'],
       ['act', 'clipboard-check', 'CAR / DAR / PAR'],
       ['ia', 'list-checks', 'ตรวจติดตามภายใน'],
@@ -78,7 +81,7 @@
     refreshPending()
   }
   function refreshPending() {
-    api.me().then((m) => { pending = m.pending || 0; pendingDocs = m.pendingDocs || 0 }).catch(() => {})
+    api.me().then((m) => { pending = m.pending || 0; pendingDocs = m.pendingDocs || 0; pendingAcks = m.pendingAcks || 0 }).catch(() => {})
   }
   async function logout() {
     try { await api.logout() } catch (e) {}
@@ -103,6 +106,7 @@
         me = m.user
         pending = m.pending || 0
         pendingDocs = m.pendingDocs || 0
+        pendingAcks = m.pendingAcks || 0
         if (!me?.mustChangePin) await loadAll()
       } catch (e) { me = null }
     }
@@ -201,7 +205,7 @@
         <div class="navgroup-label">{g.group}</div>
         {#each g.items as [k, ic, label]}
           <button class={tab === k ? 'active' : ''} title={label} on:click={() => goTab(k)}>
-            <span class="ic"><Icon name={ic} size={18} /></span><span class="lb">{label}{#if k === 'forms' && pending} ({pending}){/if}{#if k === 'dcr' && pendingDocs} ({pendingDocs}){/if}</span>
+            <span class="ic"><Icon name={ic} size={18} /></span><span class="lb">{label}{#if k === 'forms' && pending} ({pending}){/if}{#if k === 'dcr' && pendingDocs} ({pendingDocs}){/if}{#if k === 'ack' && pendingAcks} ({pendingAcks}){/if}</span>
           </button>
         {/each}
       {/each}
@@ -285,6 +289,8 @@
         <Register {docs} {jump} on:open={open} />
       {:else if tab === 'dcr'}
         <Changes {me} refresh={dcrRefresh} on:open={openChange} />
+      {:else if tab === 'ack'}
+        <Acks {me} {docs} refresh={dcrRefresh} on:open={open} />
       {:else if tab === 'ia'}
         <InternalAudit {me} {docs} />
       {:else if tab === 'mr'}

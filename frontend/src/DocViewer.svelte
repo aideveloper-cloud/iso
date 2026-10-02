@@ -8,6 +8,7 @@
   import ChangeHistory from './ChangeHistory.svelte'
   import EditActions from './EditActions.svelte'
   import ChangePanel from './ChangePanel.svelte'
+  import DocAcks from './DocAcks.svelte'
   import DecisionDialog from './DecisionDialog.svelte'
   import Icon from './Icon.svelte'
 
@@ -20,6 +21,19 @@
   let changes = [] // DCR ของเอกสารนี้ (ใหม่ → เก่า)
   let selChange = null // id ของ DCR ที่เปิดดู
   let statusAct = null // 'obsolete' | 'reinstate'
+  let ackData = null // การแจกจ่าย/รับทราบ (/api/docs/:code/acks)
+  let acking = false
+  async function loadAcks() { try { ackData = await api.docAcks(doc.code) } catch (e) { ackData = null } }
+  $: myAck = ackData?.mine
+  async function onAck(e) {
+    const { comment, pin, fail } = e.detail
+    const r = await api.ackSign(myAck.id, pin, comment)
+    if (!r.ok) { fail(r.body.error || 'บันทึกไม่สำเร็จ'); return }
+    acking = false
+    savedMsg = `รับทราบ ${myAck.rev} แล้ว — บันทึกในประวัติการอบรมของคุณ`
+    await loadAcks()
+    dispatch('saved')
+  }
 
   let meta = null, ver = null, content = null
   let dirty = false, editing = false, tab = 'doc'
@@ -65,7 +79,7 @@
   }
 
   onMount(() => {
-    load()
+    load().then(loadAcks)
     loadChanges().then(() => {
       if (initialChange && changes.some((c) => c.id === initialChange)) { selChange = initialChange; tab = 'dcr' }
     })
@@ -247,6 +261,7 @@
       <button class={tab === 'doc' ? 'active' : ''} on:click={() => (tab = 'doc')}>เอกสาร</button>
       <button class={tab === 'hist' ? 'active' : ''} on:click={() => (tab = 'hist')}>ประวัติเวอร์ชัน ({meta?.versions.length || 0})</button>
       <button class={tab === 'dcr' ? 'active' : ''} on:click={() => (tab = 'dcr')}>คำขอเปลี่ยนแปลง ({changes.length}){#if openChange} •{/if}</button>
+      <button class={tab === 'ack' ? 'active' : ''} on:click={() => { tab = 'ack'; loadAcks() }}>การแจกจ่าย/รับทราบ{#if myAck} •{/if}</button>
       <span class="grow"></span>
       {#if !loading && tab === 'doc' && meta}
         {#if content}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
@@ -263,6 +278,13 @@
     <div class="mbody">
       {#if savedMsg}<div class="save-ok inline-flex items-center gap-1.5"><Icon name="circle-check" size={16} /> {savedMsg}</div>{/if}
       {#if err}<div class="merr"><span>{err}</span><button class="retry" on:click={() => load(ver)}>ลองใหม่</button></div>{/if}
+      {#if myAck && !obsolete}
+        <div class="ack-banner">
+          <Icon name="clipboard-check" size={16} />
+          <span>คุณต้อง<b>รับทราบเอกสารนี้ {myAck.rev}</b>{#if myAck.dueDate} ภายใน {myAck.dueDate}{/if} — อ่านเนื้อหาด้านล่างให้ครบแล้วกด “อ่านและเข้าใจแล้ว”{#if myAck.overdue} <b class="text-danger">(เลยกำหนด)</b>{/if}</span>
+          <button class="vw-btn" disabled={myAck.version !== ver} title={myAck.version !== ver ? 'เปิดฉบับที่ต้องรับทราบก่อน' : ''} on:click={() => (acking = true)}>อ่านและเข้าใจแล้ว</button>
+        </div>
+      {/if}
       {#if meta && obsolete}
         <div class="obs-warn">
           <Icon name="alert-triangle" size={16} />
@@ -413,6 +435,8 @@
             </div>
           {/each}
         </div>
+      {:else if tab === 'ack' && meta}
+        {#if ackData}<DocAcks data={ackData} code={doc.code} on:changed={(e) => (ackData = e.detail)} />{:else}<div class="loadwrap"><span class="spin"></span></div>{/if}
       {:else if tab === 'dcr' && meta}
         {#if !changes.length}
           <div class="empty-state"><Icon name="clipboard-list" size={34} stroke={1.5} /><p>ยังไม่มีคำขอเปลี่ยนแปลงเอกสารนี้</p></div>
@@ -447,6 +471,18 @@
         change={{ fromRev: meta?.rev || doc.rev, newRev: meta?.nextRev || '' }}
         on:confirm={doSave}
         on:cancel={cancelSign}
+      />
+    {/if}
+
+    {#if acking && myAck}
+      <DecisionDialog
+        title="รับทราบเอกสาร — อ่านและเข้าใจแล้ว"
+        message="{doc.code} · {doc.name} · {myAck.rev}"
+        {me}
+        commentLabel="ความเห็น/ข้อสงสัย (ถ้ามี)"
+        confirmLabel="ยืนยันรับทราบ"
+        on:confirm={onAck}
+        on:cancel={() => (acking = false)}
       />
     {/if}
 

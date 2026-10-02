@@ -183,6 +183,16 @@ pub async fn evaluate(st: &S) -> Value {
         if training_n > 0 { format!("บันทึกผู้เข้าอบรม {training_n} รายการ (จาก FM-HR-008 ที่อนุมัติแล้ว)") }
         else { "ยังไม่มีบันทึกการอบรมที่อนุมัติในระบบ — หลักฐานยังอยู่ในแฟ้มกระดาษ/Excel".into() }, vec![]);
 
+    // ---------- การแจกจ่ายและรับทราบเอกสาร (7.5.3, 7.3) ----------
+    if let Some(c) = &client {
+        let ak = crate::acks::facts(st, c).await;
+        let (total, overdue) = (ak["total"].as_i64().unwrap_or(0), ak["overdue"].as_i64().unwrap_or(0));
+        cs.check("doc-ack", "ผู้เกี่ยวข้องรับทราบเอกสารฉบับปัจจุบันตามกำหนด", "เอกสาร", "7.5", total > 0 && overdue == 0, false,
+            if total == 0 { "ยังไม่มีหลักฐานการแจกจ่าย/รับทราบเอกสารในระบบ — ส่งคำขอรับทราบจากเมนู การรับทราบเอกสาร".into() }
+            else { format!("รับทราบแล้ว {}% ({}/{}) · เลยกำหนด {overdue} คำขอ", ak["rate"], ak["acknowledged"], total) },
+            ak["overdueDocs"].as_array().cloned().unwrap_or_default().iter().filter_map(|x| x.as_str().map(String::from)).collect());
+    }
+
     // ---------- การตรวจติดตามภายใน (9.2) ----------
     if let Some(c) = &client {
         let ia = crate::internalaudit::facts(c).await;
