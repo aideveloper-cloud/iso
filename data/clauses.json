@@ -1,0 +1,293 @@
+{
+  "note": "แผนผังข้อกำหนด ISO 9001:2015 → เอกสารหลักฐานในทะเบียน (แก้ไขได้โดย QMR) · required = ข้อกำหนดที่มาตรฐานบังคับให้มีเอกสาร (documented information) · excludable = ยกเว้นได้ถ้าระบุในขอบเขต (ข้อ 4.3)",
+  "clauses": [
+    {
+      "clause": "4.1",
+      "title": "บริบทขององค์กร (ประเด็นภายในและภายนอก)",
+      "required": false,
+      "docs": [
+        "QP-MR-001",
+        "FM-MR-001"
+      ]
+    },
+    {
+      "clause": "4.2",
+      "title": "ความต้องการของผู้มีส่วนได้ส่วนเสีย",
+      "required": false,
+      "docs": [
+        "QP-MR-001",
+        "FM-MR-002"
+      ]
+    },
+    {
+      "clause": "4.3",
+      "title": "ขอบเขตของระบบบริหารคุณภาพ",
+      "required": true,
+      "docs": [
+        "QM-MR-001"
+      ]
+    },
+    {
+      "clause": "4.4",
+      "title": "ระบบบริหารคุณภาพและกระบวนการ",
+      "required": true,
+      "docs": [
+        "QM-MR-001"
+      ]
+    },
+    {
+      "clause": "5.1",
+      "title": "ภาวะผู้นำและความมุ่งมั่น",
+      "required": false,
+      "docs": [
+        "QM-MR-001"
+      ]
+    },
+    {
+      "clause": "5.2",
+      "title": "นโยบายคุณภาพ",
+      "required": true,
+      "docs": [
+        "QM-MR-001"
+      ]
+    },
+    {
+      "clause": "5.3",
+      "title": "บทบาท หน้าที่ความรับผิดชอบ และอำนาจ",
+      "required": false,
+      "docs": [
+        "QM-MR-001",
+        "FM-HR-004"
+      ]
+    },
+    {
+      "clause": "6.1",
+      "title": "การดำเนินการกับความเสี่ยงและโอกาส",
+      "required": false,
+      "docs": [
+        "QP-MR-001",
+        "FM-MR-003",
+        "QP-MR-007"
+      ]
+    },
+    {
+      "clause": "6.2",
+      "title": "วัตถุประสงค์คุณภาพและการวางแผน",
+      "required": true,
+      "docs": [
+        "QP-MR-002",
+        "FM-MR-004",
+        "FM-MR-005",
+        "FM-MR-006"
+      ]
+    },
+    {
+      "clause": "6.3",
+      "title": "การวางแผนการเปลี่ยนแปลง",
+      "required": false,
+      "docs": [
+        "QP-MR-006",
+        "FM-MR-017"
+      ]
+    },
+    {
+      "clause": "7.1.2",
+      "title": "บุคลากร (สรรหาและคัดเลือก)",
+      "required": false,
+      "docs": [
+        "QP-HR-001",
+        "FM-HR-001",
+        "FM-HR-002",
+        "FM-HR-003",
+        "FM-HR-009"
+      ]
+    },
+    {
+      "clause": "7.1.3",
+      "title": "โครงสร้างพื้นฐาน (เครื่องจักร/บำรุงรักษา)",
+      "required": false,
+      "docs": [
+        "QP-MN-001",
+        "FM-MN-001",
+        "FM-MN-002",
+        "FM-MN-003",
+        "FM-MN-004",
+        "FM-MN-005",
+        "FM-MN-006"
+      ]
+    },
+    {
+      "clause": "7.1.5",
+      "title": "ทรัพยากรสำหรับการเฝ้าระวังและการวัด (สอบเทียบ)",
+      "required": true,
+      "docs": [
+        "QP-QC-003",
+        "FM-QC-005",
+        "FM-QC-006",
+        "FM-QC-007",
+        "FM-QC-008"
+      ]
+    },
+    {
+      "clause": "7.2",
+      "title": "ความสามารถ (การฝึกอบรม)",
+      "required": true,
+      "docs": [
+        "QP-HR-001",
+        "FM-HR-005",
+        "FM-HR-006",
+        "FM-HR-007",
+        "FM-HR-008"
+      ]
+    },
+    {
+      "clause": "7.5",
+      "title": "เอกสารสารสนเทศ (การควบคุมเอกสาร)",
+      "required": true,
+      "docs": [
+        "QP-DCC-001",
+        "FM-DCC-001",
+        "FM-DCC-002",
+        "FM-DCC-003",
+        "FM-DCC-004"
+      ]
+    },
+    {
+      "clause": "8.1",
+      "title": "การวางแผนและควบคุมการปฏิบัติการ",
+      "required": true,
+      "docs": [
+        "QP-PD-001",
+        "FM-PD-001",
+        "FM-PD-002"
+      ]
+    },
+    {
+      "clause": "8.2",
+      "title": "ข้อกำหนดสำหรับผลิตภัณฑ์และบริการ (งานขาย)",
+      "required": true,
+      "docs": [
+        "QP-SA-001"
+      ]
+    },
+    {
+      "clause": "8.3",
+      "title": "การออกแบบและพัฒนา",
+      "required": true,
+      "excludable": true,
+      "docs": []
+    },
+    {
+      "clause": "8.4",
+      "title": "การควบคุมผู้ให้บริการภายนอก",
+      "required": true,
+      "docs": [
+        "QP-PU-001",
+        "FM-PU-001",
+        "FM-PU-002",
+        "FM-PU-004",
+        "FM-PU-005",
+        "FM-PU-003",
+        "QP-QC-004"
+      ]
+    },
+    {
+      "clause": "8.5",
+      "title": "การผลิตและการให้บริการ",
+      "required": true,
+      "docs": [
+        "QP-PD-001",
+        "QP-WH-001",
+        "WI-PD-01",
+        "WI-PD-02",
+        "WI-PD-03",
+        "WI-PD-04",
+        "WI-PD-05",
+        "WI-PD-06",
+        "FM-WH-001",
+        "FM-PU-006"
+      ]
+    },
+    {
+      "clause": "8.6",
+      "title": "การปล่อยผลิตภัณฑ์ (การตรวจสอบคุณภาพ)",
+      "required": true,
+      "docs": [
+        "QP-QC-001",
+        "FM-QC-001",
+        "FM-QC-002",
+        "FM-QC-003",
+        "FM-QC-003-1_2",
+        "FM-QC-003-2_2"
+      ]
+    },
+    {
+      "clause": "8.7",
+      "title": "การควบคุมผลิตภัณฑ์ที่ไม่เป็นไปตามข้อกำหนด",
+      "required": true,
+      "docs": [
+        "QP-QC-002",
+        "FM-QC-004"
+      ]
+    },
+    {
+      "clause": "9.1.2",
+      "title": "ความพึงพอใจของลูกค้าและข้อร้องเรียน",
+      "required": false,
+      "docs": [
+        "FM-SA-001",
+        "FM-SA-002",
+        "FM-SA-005"
+      ]
+    },
+    {
+      "clause": "9.1.3",
+      "title": "การวิเคราะห์และประเมินผล (KPI)",
+      "required": true,
+      "docs": [
+        "FM-MR-006"
+      ]
+    },
+    {
+      "clause": "9.2",
+      "title": "การตรวจติดตามคุณภาพภายใน",
+      "required": true,
+      "docs": [
+        "QP-MR-004",
+        "FM-MR-010",
+        "FM-MR-011",
+        "FM-MR-012",
+        "FM-MR-013"
+      ]
+    },
+    {
+      "clause": "9.3",
+      "title": "การทบทวนของฝ่ายบริหาร",
+      "required": true,
+      "docs": [
+        "QP-MR-003",
+        "FM-MR-007",
+        "FM-MR-008",
+        "FM-MR-009"
+      ]
+    },
+    {
+      "clause": "10.2",
+      "title": "ความไม่เป็นไปตามข้อกำหนดและการแก้ไข (CAR)",
+      "required": true,
+      "docs": [
+        "QP-MR-005",
+        "FM-MR-014",
+        "FM-MR-015"
+      ]
+    },
+    {
+      "clause": "10.3",
+      "title": "การปรับปรุงอย่างต่อเนื่อง",
+      "required": false,
+      "docs": [
+        "FM-MR-016"
+      ]
+    }
+  ]
+}
