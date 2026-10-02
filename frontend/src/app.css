@@ -327,6 +327,146 @@
     @apply inline-flex items-center align-middle ml-2 px-2 py-[2px] rounded text-[11px] font-bold uppercase tracking-wide;
     background: #d8f3e0; color: #1b7a3a; border: 1px solid #a8dbb6;
   }
+  .status-obsolete {
+    @apply inline-flex items-center align-middle ml-2 px-2 py-[2px] rounded text-[11px] font-bold uppercase tracking-wide;
+    background: #fdeaea; color: theme(colors.danger.DEFAULT); border: 1px solid #f1c2c2;
+  }
+  .obs-warn { @apply flex items-center gap-[10px] rounded-lg px-3 py-[10px] text-[12.5px] mb-3; background: #fdeaea; border: 1px solid #f1c2c2; color: theme(colors.danger.DEFAULT); }
+  .obs-warn > span { @apply flex-1; }
+  .obs-warn .vw-btn { @apply flex-shrink-0 bg-white rounded-md px-3 py-[5px] font-sans text-[12px] font-bold cursor-pointer; border: 1px solid theme(colors.danger.DEFAULT); color: theme(colors.danger.DEFAULT); }
+  .sg-signer { @apply text-[13px] mb-3; color: #41506a; }
+  /* ความพร้อมรับการตรวจ (ต่อยอดจาก AI & Audit Dashboard ในธีม KO) */
+  .rd-metrics { @apply grid gap-[14px] mb-4; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .rd-metric { @apply text-left bg-surface rounded-xl p-4 shadow border border-line cursor-pointer font-sans; transition: transform .12s, box-shadow .12s; }
+  .rd-metric:hover { @apply shadow-lg; transform: translateY(-2px); }
+  .rd-ml { @apply flex items-center justify-between text-[12.5px] text-mut font-semibold; }
+  .rd-ml :global(svg) { @apply text-brand; }
+  .rd-mv { @apply text-[30px] font-bold text-brand leading-tight mt-2; }
+  .rd-mn { @apply flex items-center gap-[6px] text-[11.5px] text-mut mt-1; }
+  .dot { @apply inline-block w-[7px] h-[7px] rounded-full flex-shrink-0; background: theme(colors.faint); }
+  .dot.ok { background: theme(colors.ok.DEFAULT); } .dot.warn { background: theme(colors.warn.DEFAULT); } .dot.bad { background: theme(colors.danger.DEFAULT); }
+  .rd-attn h2 { @apply text-[15px] text-brand; }
+  .rd-attn-row { @apply flex items-center gap-2 w-full text-left bg-transparent border-0 border-t border-line px-1 py-[9px] text-[13px] font-sans cursor-pointer min-w-0; }
+  .rd-attn-row:hover { background: #f4f7fb; }
+  .rd-hero { @apply flex flex-wrap items-center gap-6 rounded-2xl p-6 mb-4 text-white; background: linear-gradient(135deg, theme(colors.brand.DEFAULT), #12488f); }
+  .rd-ring .ring-track { fill: none; stroke: rgba(255,255,255,.16); stroke-width: 14; }
+  .rd-ring .ring-progress { fill: none; stroke: theme(colors.accent.DEFAULT); stroke-width: 14; stroke-linecap: round; transition: stroke-dasharray .6s ease; }
+  .rd-ring .ring-number { fill: #fff; font-size: 44px; font-weight: 700; }
+  .rd-ring .ring-percent { font-size: 20px; }
+  .rd-ring .ring-label { fill: rgba(255,255,255,.7); font-size: 11px; letter-spacing: .14em; font-weight: 600; }
+  .rd-copy { @apply flex-1 min-w-[260px]; }
+  .rd-eyebrow { @apply inline-flex items-center gap-[6px] text-[11.5px] font-bold tracking-wide uppercase; color: #cfe3a8; }
+  .rd-copy h2 { @apply text-[21px] font-bold mt-2 mb-3 text-white leading-snug; }
+  .rd-status { @apply flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] mb-4; }
+  .rd-status span { @apply inline-flex items-center gap-[6px]; }
+  .rd-status .mut { color: rgba(255,255,255,.65); }
+  .rd-status .dot.ok { background: theme(colors.accent.DEFAULT); }
+  .rd-actions { @apply flex flex-wrap gap-2; }
+  .rd-hero .mbtn.gh { background: rgba(255,255,255,.1); color: #fff; border-color: rgba(255,255,255,.35); }
+  .rd-hero .mbtn.gh:hover { background: rgba(255,255,255,.2); }
+  .rd-grid { @apply grid gap-3 mb-4; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .rd-item { @apply bg-surface rounded-xl p-4 shadow border border-line border-l-4; border-left-color: theme(colors.ok.DEFAULT); }
+  .rd-item.s-warning { border-left-color: theme(colors.warn.DEFAULT); }
+  .rd-item.s-critical { border-left-color: theme(colors.danger.DEFAULT); }
+  .rd-top { @apply flex items-center gap-2 mb-2; }
+  .rd-badge { @apply text-[10.5px] font-bold px-[8px] py-[2px] rounded-[20px] whitespace-nowrap; background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  .rd-badge.s-warning { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .rd-badge.s-critical { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
+  .rd-clause { @apply text-[11px] font-bold text-brand whitespace-nowrap; }
+  .rd-cat { @apply text-[10.5px] text-mut px-[7px] py-px rounded-[5px]; background: #eef1f6; }
+  .rd-title { @apply text-[14px] font-semibold text-ink leading-snug mb-1; }
+  .rd-detail { @apply text-[12.5px] text-mut leading-relaxed m-0; }
+  .rd-ev { @apply flex flex-wrap gap-[6px] mt-3; }
+  .rd-chip { @apply text-[11px] font-semibold px-[7px] py-[2px] rounded-[5px] font-sans cursor-pointer border border-line bg-white text-mut; }
+  .rd-chip.doc { @apply text-brand; border-color: #c9d6ea; }
+  .rd-chip:hover { @apply border-brand-600; background: #f1f6fc; }
+  .rd-sub { @apply text-[14px] text-brand font-semibold mt-5 mb-2; }
+  .rd-method { @apply flex items-start gap-[6px] text-[11.5px] text-mut mt-4; }
+  .rd-dot { @apply inline-block w-[8px] h-[8px] rounded-full flex-shrink-0; background: theme(colors.ok.DEFAULT); }
+  .rd-dot.s-warning { background: theme(colors.warn.DEFAULT); } .rd-dot.s-critical { background: theme(colors.danger.DEFAULT); }
+  .cl-wrap { @apply grid gap-4; grid-template-columns: minmax(240px, 320px) 1fr; }
+  .cl-list { @apply bg-surface rounded-xl shadow border border-line p-2 self-start overflow-auto; max-height: calc(100vh - 240px); }
+  .cl-group { @apply flex items-center gap-2 text-[11.5px] font-bold text-mut uppercase tracking-wide px-2 pt-3 pb-1; }
+  .cl-item { @apply flex items-center gap-2 w-full text-left bg-transparent border-0 rounded-md px-2 py-[7px] text-[12.5px] font-sans cursor-pointer text-ink; }
+  .cl-item:hover { background: #f1f6fc; }
+  .cl-item.active { @apply bg-brand text-white; }
+  .cl-no { @apply font-bold w-[38px] flex-shrink-0; }
+  .cl-t { @apply flex-1 truncate; }
+  .cl-detail { @apply bg-surface rounded-xl shadow border border-line p-5 min-w-0; }
+  .cl-h { @apply text-[17px] text-brand font-bold mt-1 mb-1; }
+  .cl-ctl { @apply text-[12.5px] py-[6px] border-t border-line; }
+  @media (max-width: 800px) { .cl-wrap { grid-template-columns: 1fr; } .cl-list { max-height: 260px; } }
+  /* ทบทวนฝ่ายบริหาร (ต่อยอดจาก management-review-dashboard ในธีม KO) */
+  .status-badge.mr-draft { background: #eef1f6; color: theme(colors.mut); }
+  .status-badge.mr-review, .status-badge.mr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .status-badge.mr-monitoring { background: #e6ecf6; color: theme(colors.brand.DEFAULT); }
+  .status-badge.mr-closed { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  .status-badge.mr-superseded { background: #eef1f6; color: theme(colors.faint); text-decoration: line-through; }
+  .mr-steps { @apply flex flex-wrap gap-2 mb-3; }
+  .mr-step { @apply inline-flex items-center gap-[7px] text-[12.5px] font-semibold px-3 py-[6px] rounded-full border border-line bg-white text-mut; }
+  .mr-step-n { @apply inline-flex items-center justify-center w-[20px] h-[20px] rounded-full text-[11px] font-bold; background: #eef1f6; }
+  .mr-step.done { color: theme(colors.ok.DEFAULT); border-color: #b7e4c4; }
+  .mr-step.done .mr-step-n { background: theme(colors.ok.bg); }
+  .mr-step.cur { @apply bg-brand text-white border-brand; }
+  .mr-step.cur .mr-step-n { background: rgba(255,255,255,.25); }
+  .mr-bar { @apply flex flex-wrap items-center gap-2 mb-3; }
+  .mr-two { grid-template-columns: 1fr 1fr; }
+  .mr-rec { @apply rounded-lg border border-line p-3 mb-2; background: #fbfcfe; }
+  .mr-rec-grid { grid-template-columns: 2fr 1fr 1fr; }
+  .mr-metric { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .mr-rec select, .mr-person select { @apply px-[9px] py-[7px] rounded-lg text-[13px] w-full; border: 1px solid #cdd4df; }
+  .mr-ev-row { @apply grid gap-2 mb-2 items-center; grid-template-columns: 1fr 1.4fr 1.4fr auto; }
+  .mr-ev-row input { @apply px-[9px] py-[7px] rounded-lg font-sans text-[12.5px] w-full; border: 1px solid #cdd4df; }
+  .mr-person { @apply relative; }
+  .mr-people { @apply absolute z-10 left-0 right-0 bg-white rounded-lg shadow-lg border border-line overflow-hidden; top: 100%; }
+  .mr-people button { @apply block w-full text-left bg-transparent border-0 px-3 py-2 text-[12.5px] font-sans cursor-pointer; }
+  .mr-people button:hover { background: #f1f6fc; }
+  .role-pill { @apply text-[11px] font-bold px-[8px] py-[2px] rounded-[20px] whitespace-nowrap; background: #eef1f6; color: theme(colors.mut); }
+  .role-pill.r-preparer { background: #e6ecf6; color: theme(colors.brand.DEFAULT); }
+  .role-pill.r-reviewer { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .role-pill.r-approver { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  .role-pill.r-admin { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
+  .perm-table td:first-child { min-width: 320px; }
+  .mr-minutes { @apply bg-white rounded-xl shadow border border-line p-8 text-[13px] leading-relaxed text-ink relative; }
+  .mr-minutes h3 { @apply text-[15px] text-brand font-bold mt-6 mb-2 pb-1 border-b border-line; }
+  .mr-minutes h4 { @apply text-[13.5px] font-semibold mt-3 mb-1; }
+  .mr-minutes ul { @apply pl-5 my-1 list-disc; }
+  .mr-minutes p { @apply my-1; }
+  .mm-head { @apply flex items-start justify-between gap-4 pb-3 mb-3; border-bottom: 3px solid theme(colors.brand.DEFAULT); }
+  .mm-head h2 { @apply text-[19px] text-brand font-bold m-0; }
+  .mm-co { @apply text-[12px] font-bold text-mut; }
+  .mm-sub { @apply text-[12px] text-mut; }
+  .mm-draft { @apply text-[22px] font-bold px-4 py-1 rounded-lg; color: theme(colors.danger.DEFAULT); border: 3px solid theme(colors.danger.DEFAULT); transform: rotate(-6deg); }
+  .mm-table { @apply w-full border-collapse text-[12.5px]; }
+  .mm-table th, .mm-table td { @apply border border-line px-2 py-[6px] align-top text-left; }
+  .mm-table th { @apply font-semibold text-mut whitespace-nowrap; background: #f6f8fc; position: static; color: theme(colors.mut); cursor: default; }
+  .mm-signs { @apply grid gap-6 mt-6 text-center text-[12.5px]; grid-template-columns: repeat(3, 1fr); }
+  .mm-sign-line { @apply font-semibold pb-1 mb-1 min-h-[26px]; border-bottom: 1px dotted #8a96a8; }
+  .mm-hash { @apply font-mono text-[10px] text-faint mt-1; }
+  .mm-foot { @apply text-[11px] text-mut mt-4; }
+  @media (max-width: 800px) { .mr-two, .mr-rec-grid, .mr-metric, .mm-signs { grid-template-columns: 1fr; } .mr-ev-row { grid-template-columns: 1fr auto; } }
+  /* CAR/DAR/PAR ครบวงจร */
+  .status-badge.s-verify { background: #f1e9fb; color: #6b3fb4; }
+  .status-badge.s-cancelled { background: #eef1f6; color: theme(colors.faint); }
+  .capa-grid { @apply grid gap-3; grid-template-columns: 1fr 1fr; }
+  .capa-ta { @apply w-full px-[11px] py-[9px] rounded-lg font-sans text-[13.5px]; border: 1px solid #cdd4df; }
+  .sec select, .sec input[type=date] { @apply px-[9px] py-[7px] rounded-lg text-[13px]; border: 1px solid #cdd4df; }
+  .sgf select:disabled, .sgf input:disabled, .capa-ta:disabled, .sgf textarea:disabled { background: #f6f8fb; color: theme(colors.ink); }
+  @media (max-width: 800px) { .capa-grid { grid-template-columns: 1fr; } }
+  .ver-last { @apply text-[10.5px] text-mut leading-tight mt-1; }
+  .ver-last-inline { @apply text-[11px] text-mut ml-2; }
+  /* คำขอเปลี่ยนแปลงเอกสาร (DCR) */
+  .status-badge.dcr-review, .status-badge.dcr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .status-badge.dcr-returned { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
+  .status-badge.dcr-effective { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  .status-badge.dcr-cancelled { background: #eef1f5; color: theme(colors.mut); }
+  .dcr-head { @apply rounded-xl border border-line bg-[#f7fafc] p-3 mb-3; }
+  .dcr-actions { @apply flex flex-wrap gap-2 items-center mb-3; }
+  .dcr-sub { @apply text-[13.5px] text-brand font-semibold mt-4 mb-2; }
+  .dcr-pick { @apply flex flex-wrap gap-2 mb-3; }
+  .dcr-draft.is-draft { @apply rounded-lg p-2; border: 2px dashed #f0d9a8; }
+  .chg-table .mono { @apply font-mono text-[11px] text-mut; }
+  .legacy-flag { @apply inline-block mt-1 text-[10.5px] font-bold px-[6px] rounded; background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
   .chg-wrap { @apply mb-4 overflow-auto; }
   .chg-wrap.on-doc { @apply mb-3; }
   .chg-title { @apply text-[14px] text-brand font-semibold mt-0 mb-2; }
@@ -355,6 +495,20 @@
   .rte-toolbar button:hover { @apply bg-brand-light text-brand border-brand-600; }
   .rte-sep { @apply w-px h-5 mx-1; background: #cdd4df; }
   .dochtml table { @apply border-collapse; } .dochtml td, .dochtml th { @apply px-2 py-1; border: 1px solid #ccc; }
+  /* เอกสาร Word ที่แปลงมาให้คงรูปแบบเดิม (converter/docx.go) */
+  .dochtml:has(.docx-page) { background: #e9edf3; padding: 14px; }
+  .dochtml.rte:has(.docx-page) { background: #e9edf3; }
+  .docx-page { @apply bg-white mx-auto relative text-black; box-sizing: border-box; box-shadow: 0 1px 6px rgba(20,30,60,.18); line-height: 1.2; }
+  .docx-page div.p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1em; }
+  .docx-page table.docx-tbl { border-collapse: collapse; table-layout: fixed; }
+  .docx-page table.docx-tbl td { padding: 1px 6px; border: 0; overflow-wrap: anywhere; }
+  .docx-page img { display: inline-block; vertical-align: middle; }
+  .docx-page .tab { display: inline-block; white-space: pre; }
+  .docx-page .txbx { display: inline-block; vertical-align: top; max-width: 100%; border: 1px dashed #c3cad6; }
+  .docx-page .pgbrk { display: block; text-align: center; font: 11px/1.4 sans-serif; color: #98a2b3; border-top: 1px dashed #c3cad6; margin: 6px 0; }
+  .docx-page .docx-hdr { padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px dotted #d5dae3; }
+  .docx-page .docx-ftr { padding-top: 6px; margin-top: 8px; border-top: 1px dotted #d5dae3; }
+  .docx-page .atom { cursor: default; }
   .docframe { @apply w-full h-[66vh] rounded-lg; border: 1px solid #e3e7ee; }
   .docimg { @apply max-w-full rounded-lg; border: 1px solid #e3e7ee; }
   .nopreview { @apply text-center px-5 py-10 text-mut; }
@@ -440,4 +594,6 @@
   #tbl th { background: #eee !important; color: #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .tag, .verpill, .audit-flag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   table { font-size: 10px; }
+  .mr-minutes { box-shadow: none; border: none; padding: 0; }
+  .mm-table th { background: #f2f2f2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }

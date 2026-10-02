@@ -21,6 +21,8 @@
   }, {})
   function issuesOf(d) {
     const list = []
+    if (d.docStatus === 'obsolete') list.push({ t: 'ยกเลิกใช้', c: 'red' })
+    if (d.openChange) list.push({ t: `${d.openChange.refNo} รออนุมัติ`, c: 'warn' })
     if (d.unreg) list.push({ t: 'นอกทะเบียน', c: 'warn' })
     if (d.missing) list.push({ t: 'ไฟล์หาย', c: 'red' })
     if (d.dup > 1) list.push({ t: `ไฟล์ซ้ำ ${d.dup}`, c: 'warn' })
@@ -39,15 +41,13 @@
     unreg: docs.filter((d) => d.unreg).length,
     missing: docs.filter((d) => d.missing).length,
     openActions: actions.filter((a) => a.status !== 'closed').length,
+    pendingChanges: docs.filter((d) => d.openChange).length,
     issues: docs.filter((d) => issuesOf(d).length > 0).length,
   }
   function clearFilters() { q = ''; ft = ''; fd = ''; onlyIssues = false }
 </script>
 
-<div class="cat-head no-print">
-  <h2 class="cat-title inline-flex items-center gap-2"><Icon name="list-checks" size={20} /> เตรียม Audit</h2>
-  <p class="cat-desc">ดัชนีเอกสารควบคุมพร้อมสถานะความพร้อมตรวจประเมิน — ค้นหา เรียกดู และพิมพ์รายการสำหรับ Auditor ได้ในคลิกเดียว</p>
-</div>
+<p class="cat-desc no-print">ดัชนีเอกสารควบคุมพร้อมสถานะ — ค้นหา เรียกดู และพิมพ์รายการสำหรับ Auditor ได้ในคลิกเดียว</p>
 
 <!-- สรุปสำหรับ audit -->
 <div class="audit-summary">
@@ -56,6 +56,7 @@
   <div class="as-card warn"><div class="as-n">{summary.unreg}</div><div class="as-l">นอกทะเบียน</div></div>
   <div class="as-card red"><div class="as-n">{summary.missing}</div><div class="as-l">ไฟล์หาย</div></div>
   <div class="as-card red"><div class="as-n">{summary.openActions}</div><div class="as-l">CAR/DAR/PAR ค้าง</div></div>
+  <div class="as-card warn"><div class="as-n">{summary.pendingChanges}</div><div class="as-l">DCR รออนุมัติ</div></div>
   <div class="as-card red"><div class="as-n">{summary.issues}</div><div class="as-l">เอกสารมีประเด็น</div></div>
 </div>
 
