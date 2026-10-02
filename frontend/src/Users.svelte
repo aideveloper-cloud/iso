@@ -21,6 +21,11 @@
   $: counts = Object.fromEntries(ROLE_KEYS.map((r) => [r, list.filter((e) => e.status === 'active' && e.role === r).length]))
 
   function open(e) { edit = { ...e, pin: '' }; editErr = '' }
+  async function setAuditor(e, on) {
+    const r = await api.iaSetAuditor(e.empCode, on)
+    msg = r.ok ? `${on ? 'ขึ้นทะเบียน' : 'ถอน'} ${e.nameTh} ${on ? 'เป็น' : 'จาก'}ผู้ตรวจติดตามภายในแล้ว` : (r.body.error || 'บันทึกไม่สำเร็จ')
+    load()
+  }
   async function save() {
     if (edit.pin && !/^\d{6}$/.test(edit.pin)) { editErr = 'PIN ใหม่ต้องเป็นตัวเลข 6 หลัก'; return }
     saving = true
@@ -58,13 +63,14 @@
 
   <div class="sec !p-0 overflow-auto mb-4">
     <table>
-      <thead><tr><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>แผนก</th><th>บทบาท</th><th>สถานะ</th><th></th></tr></thead>
+      <thead><tr><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>แผนก</th><th>บทบาท</th><th>ผู้ตรวจภายใน</th><th>สถานะ</th><th></th></tr></thead>
       <tbody>
         {#each rows as e (e.empCode)}
           <tr class:opacity-50={e.status !== 'active'}>
             <td class="code">{e.empCode}</td><td>{e.nameTh}</td><td>{e.position}</td><td>{DEPTNAME[e.dept] || e.dept}</td>
             <td><span class="role-pill r-{e.role}">{ROLES[e.role] || e.role}</span></td>
-            <td>{e.status === 'active' ? 'ใช้งาน' : 'ปิดใช้งาน'}</td>
+            <td class="text-center"><input type="checkbox" checked={e.internalAuditor} title="ขึ้นทะเบียนผู้ตรวจติดตามคุณภาพภายใน (FM-MR-011)" on:change={(ev) => setAuditor(e, ev.target.checked)} /></td>
+            <td>{e.status === 'active' ? 'ใช้งาน' : 'ปิดใช้งาน'}{#if e.mustChangePin}<br /><span class="mut text-[11px]">รอตั้ง PIN ใหม่</span>{/if}</td>
             <td><button class="mbtn gh" on:click={() => open(e)}>แก้ไข</button></td>
           </tr>
         {/each}

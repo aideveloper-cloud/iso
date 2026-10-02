@@ -183,6 +183,28 @@ pub async fn evaluate(st: &S) -> Value {
         if training_n > 0 { format!("บันทึกผู้เข้าอบรม {training_n} รายการ (จาก FM-HR-008 ที่อนุมัติแล้ว)") }
         else { "ยังไม่มีบันทึกการอบรมที่อนุมัติในระบบ — หลักฐานยังอยู่ในแฟ้มกระดาษ/Excel".into() }, vec![]);
 
+    // ---------- การตรวจติดตามภายใน (9.2) ----------
+    if let Some(c) = &client {
+        let ia = crate::internalaudit::facts(c).await;
+        let planned: Vec<String> = ia["planned"].as_array().cloned().unwrap_or_default().iter()
+            .flat_map(|a| a["clauses"].as_array().cloned().unwrap_or_default()).filter_map(|x| x.as_str().map(String::from)).collect();
+        let catalog: Vec<String> = st.clauses["clauses"].as_array().cloned().unwrap_or_default().iter()
+            .filter(|c| !c["excludable"].as_bool().unwrap_or(false)).filter_map(|c| c["clause"].as_str().map(String::from)).collect();
+        let missing: Vec<String> = catalog.iter().filter(|cl| !planned.iter().any(|p| *cl == p || cl.starts_with(&format!("{p}.")))).cloned().collect();
+        let n_plan = ia["planned"].as_array().map(|a| a.len()).unwrap_or(0);
+        cs.check("ia-plan", &format!("แผนตรวจติดตามภายในปี {} ครอบคลุมทุกข้อกำหนด", ia["year"]), "ตรวจติดตาม", "9.2", n_plan > 0 && missing.is_empty(), n_plan == 0,
+            if n_plan == 0 { "ยังไม่มีแผนตรวจติดตามภายในของปีนี้ในระบบ (เมนู ตรวจติดตามภายใน)".into() }
+            else if missing.is_empty() { format!("{n_plan} การตรวจ ครอบคลุมครบทุกข้อ") }
+            else { format!("{n_plan} การตรวจ · ยังไม่ครอบคลุม {} ข้อ: {}", missing.len(), missing.join(", ")) }, vec![]);
+        let done = ia["done"].as_array().cloned().unwrap_or_default();
+        cs.check("ia-done", "ตรวจติดตามภายในและลงนามรายงานภายใน 12 เดือน", "ตรวจติดตาม", "9.2", !done.is_empty(), true,
+            if done.is_empty() { "ยังไม่มีรายงานการตรวจติดตามภายในที่ลงนามในรอบ 12 เดือน".into() } else { format!("รายงานที่ลงนามแล้ว {} ฉบับ", done.len()) },
+            done.iter().filter_map(|d| d["refNo"].as_str().map(String::from)).collect());
+        let overdue: Vec<String> = ia["overdue"].as_array().cloned().unwrap_or_default().iter().filter_map(|x| x.as_str().map(String::from)).collect();
+        cs.check("ia-overdue", "การตรวจติดตามเป็นไปตามกำหนดแผน", "ตรวจติดตาม", "9.2", overdue.is_empty(), false,
+            format!("เลยวันที่วางแผนแต่ยังไม่เริ่มตรวจ {} การตรวจ", overdue.len()), overdue);
+    }
+
     // ---------- การทบทวนของฝ่ายบริหาร (9.3) ----------
     if let Some(c) = &client {
         let (last, late) = crate::mreview::readiness_facts(c).await;

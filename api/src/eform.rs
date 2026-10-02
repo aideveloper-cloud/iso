@@ -383,7 +383,8 @@ fn emp_json(r: &tokio_postgres::Row) -> Value {
     json!({
         "empCode": r.get::<_, String>(0), "nameTh": r.get::<_, String>(1), "nameEn": r.get::<_, String>(2),
         "position": r.get::<_, String>(3), "dept": r.get::<_, String>(4), "managerCode": r.get::<_, String>(5),
-        "role": r.get::<_, String>(6), "status": r.get::<_, String>(7),
+        "role": r.get::<_, String>(6), "status": r.get::<_, String>(7), "internalAuditor": r.get::<_, bool>(8),
+        "mustChangePin": r.get::<_, bool>(9),
     })
 }
 
@@ -393,7 +394,7 @@ pub async fn employees_list(State(st): State<S>, Extension(u): Extension<AuthUse
     let dept = q.get("dept").cloned().unwrap_or_default();
     // ผู้ดูแลระบบดูบัญชีที่ปิดใช้งานแล้วได้ด้วย (หน้า ผู้ใช้และสิทธิ์)
     let all = is_admin(&u.role) && q.get("all").map(|v| v == "1").unwrap_or(false);
-    let sql = "SELECT emp_code,name_th,name_en,position,dept,manager_code,role,status FROM employees WHERE ($3 OR status='active') AND ($2='' OR dept=$2) AND (emp_code ILIKE $1 OR name_th ILIKE $1 OR name_en ILIKE $1) ORDER BY emp_code LIMIT 1000";
+    let sql = "SELECT emp_code,name_th,name_en,position,dept,manager_code,role,status,internal_auditor,must_change_pin FROM employees WHERE ($3 OR status='active') AND ($2='' OR dept=$2) AND (emp_code ILIKE $1 OR name_th ILIKE $1 OR name_en ILIKE $1) ORDER BY emp_code LIMIT 1000";
     match client.query(sql, &[&needle, &dept, &all]).await {
         Ok(rows) => Json(Value::Array(rows.iter().map(emp_json).collect())).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("อ่านพนักงานไม่ได้: {e}")),

@@ -455,6 +455,25 @@
   @media (max-width: 800px) { .capa-grid { grid-template-columns: 1fr; } }
   .ver-last { @apply text-[10.5px] text-mut leading-tight mt-1; }
   .ver-last-inline { @apply text-[11px] text-mut ml-2; }
+  /* ตรวจติดตามภายใน */
+  .status-badge.ia-planned { background: #eef1f6; color: theme(colors.mut); }
+  .status-badge.ia-in_progress { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .status-badge.ia-reported { background: #e6ecf6; color: theme(colors.brand.DEFAULT); }
+  .status-badge.ia-closed { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  .status-badge.ia-cancelled { background: #eef1f6; color: theme(colors.faint); }
+  .ia-year { @apply px-[9px] py-[6px] rounded-lg text-[13px]; border: 1px solid #cdd4df; }
+  .ia-cover { @apply grid gap-4; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  .ia-cover-row { @apply flex items-center gap-2 text-[12.5px] py-[3px] min-w-0; }
+  .ia-chips { @apply flex flex-wrap gap-[6px]; }
+  .rd-chip.on { @apply bg-brand text-white border-brand; }
+  .ia-res { @apply text-[11px] font-bold px-[8px] py-[2px] rounded-[20px] border border-transparent font-sans whitespace-nowrap; background: #eef1f6; color: theme(colors.mut); }
+  button.ia-res { @apply cursor-pointer; }
+  .ia-res.r-conform { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  .ia-res.r-ofi { background: #e6ecf6; color: theme(colors.brand.DEFAULT); }
+  .ia-res.r-minor { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .ia-res.r-major { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
+  .ia-res.on { border-color: currentColor; box-shadow: 0 0 0 2px rgba(11,54,121,.15); }
+  button.ia-res:disabled { @apply opacity-40 cursor-not-allowed; }
   /* คำขอเปลี่ยนแปลงเอกสาร (DCR) */
   .status-badge.dcr-review, .status-badge.dcr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
   .status-badge.dcr-returned { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }

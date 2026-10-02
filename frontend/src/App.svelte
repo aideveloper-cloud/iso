@@ -9,6 +9,7 @@
   import AuditHub from './AuditHub.svelte'
   import Changes from './Changes.svelte'
   import ManagementReview from './ManagementReview.svelte'
+  import InternalAudit from './InternalAudit.svelte'
   import Users from './Users.svelte'
   import AuditTrail from './AuditTrail.svelte'
   import Forms from './Forms.svelte'
@@ -19,7 +20,7 @@
   import FilePreview from './FilePreview.svelte'
   import Icon from './Icon.svelte'
 
-  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail']
+  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia']
   let tab = 'dash'
   let docs = [], overview = []
   let openCode = null
@@ -49,6 +50,7 @@
       ['dcr', 'clipboard-check', 'คำขอเปลี่ยนแปลงเอกสาร'],
       ['forms', 'clipboard-list', 'บันทึกแบบฟอร์ม'],
       ['act', 'clipboard-check', 'CAR / DAR / PAR'],
+      ['ia', 'list-checks', 'ตรวจติดตามภายใน'],
       ['mr', 'building', 'ทบทวนฝ่ายบริหาร'],
       ['audit', 'list-checks', 'เตรียม Audit'],
     ] },
@@ -283,6 +285,8 @@
         <Register {docs} {jump} on:open={open} />
       {:else if tab === 'dcr'}
         <Changes {me} refresh={dcrRefresh} on:open={openChange} />
+      {:else if tab === 'ia'}
+        <InternalAudit {me} {docs} />
       {:else if tab === 'mr'}
         <ManagementReview {me} on:doc={(e) => { openCode = docs.some((d) => d.code === e.detail) ? e.detail : openCode }} />
       {:else if tab === 'trail'}

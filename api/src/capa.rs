@@ -139,10 +139,10 @@ pub async fn get(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
 #[derive(Deserialize, Default)]
 #[allow(non_snake_case)]
 pub struct Fields {
-    kind: Option<String>, title: Option<String>, detail: Option<String>, dept: Option<String>, docCode: Option<String>,
-    source: Option<String>, assigneeCode: Option<String>, priority: Option<String>, dueDate: Option<String>,
-    containment: Option<String>, rcaMethod: Option<String>, rootCause: Option<String>, actionTaken: Option<String>,
-    progress: Option<i64>, verifyDue: Option<String>, riskReview: Option<String>, linkedRef: Option<String>,
+    pub kind: Option<String>, pub title: Option<String>, pub detail: Option<String>, pub dept: Option<String>, pub docCode: Option<String>,
+    pub source: Option<String>, pub assigneeCode: Option<String>, pub priority: Option<String>, pub dueDate: Option<String>,
+    pub containment: Option<String>, pub rcaMethod: Option<String>, pub rootCause: Option<String>, pub actionTaken: Option<String>,
+    pub progress: Option<i64>, pub verifyDue: Option<String>, pub riskReview: Option<String>, pub linkedRef: Option<String>,
 }
 
 /// ตรวจและรวมค่าที่ส่งมาเข้ากับค่าเดิม
@@ -192,33 +192,41 @@ async fn save(c: &impl deadpool_postgres::GenericClient, a: &Value, version: i64
 /// เปิดใบใหม่ (ผู้จัดทำขึ้นไป) — ผู้เปิดใบคือผู้ใช้ที่ login
 pub async fn create(State(st): State<S>, Extension(u): Extension<AuthUser>, Json(f): Json<Fields>) -> Response {
     if u.role == "viewer" { return forbid("บัญชีผู้อ่านอย่างเดียวเปิดใบไม่ได้"); }
-    let kind = f.kind.clone().unwrap_or_default().to_uppercase();
-    if !KINDS.contains(&kind.as_str()) { return bad("ประเภทต้องเป็น CAR/DAR/PAR"); }
-    if f.title.as_deref().map(|t| t.trim().is_empty()).unwrap_or(true) { return bad("ต้องระบุเรื่อง"); }
     let Ok(c) = st.db.get().await else { return db_err() };
+    match open_action(&st, &c, &u, f).await {
+        Ok((id, _)) => detail_resp(&st, &u, id).await,
+        Err(r) => r,
+    }
+}
+
+/// เปิดใบ CAR/DAR/PAR (ใช้ทั้งจากหน้า CAPA และจากข้อบกพร่องของการตรวจติดตามภายใน) — คืน (id, เลขที่ใบ)
+pub(crate) async fn open_action(st: &S, c: &impl deadpool_postgres::GenericClient, u: &AuthUser, f: Fields) -> Result<(i64, String), Response> {
+    let kind = f.kind.clone().unwrap_or_default().to_uppercase();
+    if !KINDS.contains(&kind.as_str()) { return Err(bad("ประเภทต้องเป็น CAR/DAR/PAR")); }
+    if f.title.as_deref().map(|t| t.trim().is_empty()).unwrap_or(true) { return Err(bad("ต้องระบุเรื่อง")); }
     let mut a = json!({ "kind": kind, "priority": "medium", "progress": 0, "status": "open", "effectiveness": "pending" });
-    if let Err(r) = apply(&c, &st, &mut a, f).await { return r; }
+    apply(c, st, &mut a, f).await?;
     let year = eform::be_year_now();
     // เลขที่ต่อเนื่องต่อประเภท/ปี — เริ่มต่อจากใบที่มีอยู่แล้ว (ระบบเดิมนับจาก COUNT) และกันเลขซ้ำเมื่อเปิดพร้อมกัน
     let existing: i64 = c.query_one("SELECT COUNT(*) FROM actions WHERE ref_no LIKE $1", &[&format!("{kind}-{year}-%")]).await.map(|r| r.get(0)).unwrap_or(0);
-    let seq: i64 = match c.query_one(
+    let seq: i64 = c.query_one(
         "INSERT INTO form_seq(form_code,year_be,last_seq) VALUES($1,$2,$3)
          ON CONFLICT(form_code,year_be) DO UPDATE SET last_seq=GREATEST(form_seq.last_seq,$3-1)+1 RETURNING last_seq",
         &[&kind, &year, &(existing + 1)],
-    ).await { Ok(r) => r.get(0), Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()) };
+    ).await.map(|r| r.get(0)).map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     let ref_no = format!("{kind}-{year}-{seq:03}");
     let now = now_iso();
-    let id: i64 = match c.query_one(
+    let id: i64 = c.query_one(
         "INSERT INTO actions(ref_no,kind,title,detail,dept,doc_code,raised_by,raised_code,assignee,assignee_code,priority,status,progress,due_date,action_taken,
            source,containment,rca_method,root_cause,verify_due,risk_review,linked_ref,created_at,updated_at,closed_at)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'open',0,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$21,'') RETURNING id",
         &[&ref_no, &kind, &s(&a, "title"), &s(&a, "detail"), &s(&a, "dept"), &s(&a, "docCode"), &u.name, &u.emp_code, &s(&a, "assignee"),
           &s(&a, "assigneeCode"), &s(&a, "priority"), &s(&a, "dueDate"), &s(&a, "actionTaken"), &s(&a, "source"), &s(&a, "containment"),
           &s(&a, "rcaMethod"), &s(&a, "rootCause"), &s(&a, "verifyDue"), &s(&a, "riskReview"), &s(&a, "linkedRef"), &now],
-    ).await { Ok(r) => r.get(0), Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("เปิดใบไม่สำเร็จ: {e}")) };
-    step(&c, id, "open", &u, &s(&a, "title")).await;
-    let _ = eform::audit(&c, &u, "capa_open", "action", &ref_no, &s(&a, "title")).await;
-    detail_resp(&st, &u, id).await
+    ).await.map(|r| r.get(0)).map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &format!("เปิดใบไม่สำเร็จ: {e}")))?;
+    step(c, id, "open", u, &s(&a, "title")).await;
+    let _ = eform::audit(c, u, "capa_open", "action", &ref_no, &s(&a, "title")).await;
+    Ok((id, ref_no))
 }
 
 #[derive(Deserialize)]

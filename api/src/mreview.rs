@@ -361,6 +361,17 @@ async fn system_records(st: &S, c: &impl deadpool_postgres::GenericClient, meeti
         let evs = if codes.is_empty() { vec![ev("READINESS", &s(&ctl, "id"))] } else { codes };
         audits.push(rec(format!("SYS-RD-{}", s(&ctl, "id")), s(&ctl, "title"), String::new(), if ctl["status"] == json!("critical") { "critical" } else { "attention" }, s(&ctl, "detail"), evs));
     }
+    // ผลการตรวจติดตามภายในที่ลงนามรายงานแล้วในรอบ 12 เดือน
+    let ia = crate::internalaudit::facts(c).await;
+    for d in ia["done"].as_array().cloned().unwrap_or_default() {
+        let k = &d["counts"];
+        let (major, minor, ofi) = (k["major"].as_i64().unwrap_or(0), k["minor"].as_i64().unwrap_or(0), k["ofi"].as_i64().unwrap_or(0));
+        let open = d["openCars"].as_i64().unwrap_or(0);
+        audits.push(rec(format!("SYS-{}", s(&d, "refNo")), format!("ตรวจติดตามภายใน {} {}", s(&d, "refNo"), s(&d, "title")), String::new(),
+            if major > 0 && open > 0 { "critical" } else if open > 0 || minor > 0 { "attention" } else { "good" },
+            format!("NC สำคัญ {major} · NC เล็กน้อย {minor} · ข้อสังเกต {ofi} · CAR ที่ยังเปิด {open} · สถานะ {}", s(&d, "status")),
+            vec![ev(&s(&d, "refNo"), "รายงานการตรวจติดตามภายใน")]));
+    }
     out.push(("audits".into(), audits));
 
     // d) ทรัพยากร: การอบรมที่อนุมัติแล้วในรอบ 12 เดือน (จาก FM-HR-008)

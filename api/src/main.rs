@@ -20,6 +20,7 @@ mod audittrail;
 mod capa;
 mod doccontrol;
 mod eform;
+mod internalaudit;
 mod mreview;
 mod readiness;
 
@@ -179,6 +180,7 @@ async fn init_db(pool: &Pool) {
                 client.batch_execute(readiness::SCHEMA).await.expect("สร้างตารางผลความพร้อม Audit ไม่สำเร็จ");
                 client.batch_execute(mreview::SCHEMA).await.expect("สร้างตารางทบทวนฝ่ายบริหารไม่สำเร็จ");
                 client.batch_execute(capa::SCHEMA).await.expect("ปรับตาราง CAR/DAR/PAR ไม่สำเร็จ");
+                client.batch_execute(internalaudit::SCHEMA).await.expect("สร้างตารางตรวจติดตามภายในไม่สำเร็จ");
                 return;
             }
             Err(e) => {
@@ -931,6 +933,12 @@ async fn main() {
         .route("/api/actions/:id", get(capa::get).put(capa::update))
         .route("/api/actions/:id/act", axum::routing::post(capa::act))
         .route("/api/audit-log", get(audittrail::list))
+        .route("/api/ia", get(internalaudit::list).post(internalaudit::create))
+        .route("/api/ia/auditors", axum::routing::post(internalaudit::set_auditor))
+        .route("/api/ia/:id", get(internalaudit::get).put(internalaudit::update))
+        .route("/api/ia/:id/act", axum::routing::post(internalaudit::act))
+        .route("/api/ia/:id/items", axum::routing::post(internalaudit::save_item))
+        .route("/api/ia/:id/items/:iid/car", axum::routing::post(internalaudit::raise_car))
         .route("/api/overview", get(overview))
         .route("/api/overview/file", get(overview_file))
         .route("/api/overview/content", get(overview_content))
