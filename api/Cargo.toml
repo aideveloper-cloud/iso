@@ -13,6 +13,10 @@ deadpool-postgres = "0.14"
 rusqlite = { version = "0.31", features = ["bundled"] } # ใช้ครั้งเดียวสำหรับ migrate ข้อมูลเก่าจาก SQLite
 base64 = "0.22"
 chrono = "0.4"
+sha2 = "0.10"
+argon2 = "0.5" # แฮช PIN (Argon2id + salt ต่อคน) และสุ่ม token ด้วย OsRng
+rand_core = { version = "0.6", features = ["getrandom"] } # เปิด OsRng (CSPRNG ของระบบปฏิบัติการ)
+qrcode = { version = "0.14", default-features = false }
 
 [profile.dev]
 opt-level = 0
