@@ -459,6 +459,21 @@
   .ack-banner > span { @apply flex-1; }
   .ack-banner .vw-btn { @apply flex-shrink-0 rounded-md px-3 py-[5px] font-sans text-[12px] font-bold cursor-pointer bg-brand text-white border-0; }
   .ack-banner .vw-btn:disabled { @apply opacity-50 cursor-not-allowed; }
+  /* Training matrix */
+  .tm-table { @apply border-collapse text-[12.5px]; }
+  .tm-table th, .tm-table td { @apply border border-line px-2 py-[6px]; }
+  .tm-table th { position: sticky; top: 0; }
+  .tm-sticky { position: sticky; left: 0; z-index: 1; background: #fff; min-width: 220px; }
+  .tm-table th.tm-sticky { @apply bg-brand; z-index: 2; }
+  .tm-col { @apply align-bottom text-center whitespace-normal; min-width: 90px; max-width: 120px; font-size: 11.5px; }
+  .tm-name { @apply text-left bg-transparent border-0 p-0 font-sans cursor-pointer text-ink text-[12.5px]; }
+  .tm-name:hover b { @apply underline; }
+  .tm-cell { @apply text-center font-bold; }
+  span.tm-cell { @apply inline-block w-[22px] rounded; }
+  .tm-cell.c-met { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  .tm-cell.c-expired, .tm-cell.c-missing { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
+  .tm-cell.c-pending, .tm-cell.c-outdated { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .tm-cell.c-na { background: #f6f8fb; }
   /* ตรวจติดตามภายใน */
   .status-badge.ia-planned { background: #eef1f6; color: theme(colors.mut); }
   .status-badge.ia-in_progress { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }

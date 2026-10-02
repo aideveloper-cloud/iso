@@ -183,6 +183,15 @@ pub async fn evaluate(st: &S) -> Value {
         if training_n > 0 { format!("บันทึกผู้เข้าอบรม {training_n} รายการ (จาก FM-HR-008 ที่อนุมัติแล้ว)") }
         else { "ยังไม่มีบันทึกการอบรมที่อนุมัติในระบบ — หลักฐานยังอยู่ในแฟ้มกระดาษ/Excel".into() }, vec![]);
 
+    // ---------- ความสามารถของบุคลากร: training matrix (7.2) ----------
+    if let Some(c) = &client {
+        let tm = crate::training::summary(st, c).await;
+        let (reqs, gaps) = (tm["requirements"].as_i64().unwrap_or(0), tm["peopleWithGaps"].as_i64().unwrap_or(0));
+        cs.check("training-matrix", "พนักงานผ่านการอบรม/ความสามารถตามที่กำหนด (training matrix)", "การอบรม", "7.2", reqs > 0 && gaps == 0, false,
+            if reqs == 0 { "ยังไม่กำหนดข้อกำหนดการอบรมต่อตำแหน่ง/แผนก (เมนู Training matrix)".into() }
+            else { format!("ผ่าน {}% ({}/{}) · หมดอายุ {} · พนักงานที่ยังขาด {gaps} คน", tm["rate"], tm["met"], tm["cells"], tm["expired"]) }, vec![]);
+    }
+
     // ---------- การแจกจ่ายและรับทราบเอกสาร (7.5.3, 7.3) ----------
     if let Some(c) = &client {
         let ak = crate::acks::facts(st, c).await;

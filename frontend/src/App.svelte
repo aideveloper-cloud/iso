@@ -11,6 +11,7 @@
   import ManagementReview from './ManagementReview.svelte'
   import InternalAudit from './InternalAudit.svelte'
   import Acks from './Acks.svelte'
+  import TrainingMatrix from './TrainingMatrix.svelte'
   import Users from './Users.svelte'
   import AuditTrail from './AuditTrail.svelte'
   import Forms from './Forms.svelte'
@@ -21,7 +22,7 @@
   import FilePreview from './FilePreview.svelte'
   import Icon from './Icon.svelte'
 
-  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack']
+  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm']
   let tab = 'dash'
   let docs = [], overview = []
   let openCode = null
@@ -51,6 +52,7 @@
     { group: 'ติดตามงาน', items: [
       ['dcr', 'clipboard-check', 'คำขอเปลี่ยนแปลงเอกสาร'],
       ['ack', 'circle-check', 'การรับทราบเอกสาร'],
+      ['tm', 'user', 'Training matrix'],
       ['forms', 'clipboard-list', 'บันทึกแบบฟอร์ม'],
       ['act', 'clipboard-check', 'CAR / DAR / PAR'],
       ['ia', 'list-checks', 'ตรวจติดตามภายใน'],
@@ -289,6 +291,8 @@
         <Register {docs} {jump} on:open={open} />
       {:else if tab === 'dcr'}
         <Changes {me} refresh={dcrRefresh} on:open={openChange} />
+      {:else if tab === 'tm'}
+        <TrainingMatrix {me} {docs} on:open={open} />
       {:else if tab === 'ack'}
         <Acks {me} {docs} refresh={dcrRefresh} on:open={open} />
       {:else if tab === 'ia'}

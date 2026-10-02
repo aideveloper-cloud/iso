@@ -78,6 +78,12 @@ export const api = {
   action: (id) => send(`/api/actions/${id}`).then((r) => r.json()),
   actionUpdate: (id, version, fields) => postJson(`/api/actions/${id}`, { version, fields }, 'PUT'),
   actionAct: (id, version, action, comment, pin, effective) => postJson(`/api/actions/${id}/act`, { version, action, comment, pin, effective }),
+  // Training matrix (7.2)
+  trainingMatrix: (dept) => send('/api/training/matrix' + (dept ? '?dept=' + dept : '')).then((r) => r.json()),
+  trainingHistory: (code) => send(`/api/training/history/${encodeURIComponent(code)}`).then((r) => r.json()),
+  trainingReqCreate: (f) => postJson('/api/training/reqs', f),
+  trainingReqUpdate: (id, f) => postJson(`/api/training/reqs/${id}`, f, 'PUT'),
+  trainingRecord: (payload) => postJson('/api/training/records', payload),
   // การแจกจ่ายและรับทราบเอกสาร (7.5.3)
   acksMine: () => send('/api/acks/mine').then((r) => r.json()),
   acksOverview: (status) => send('/api/acks' + (status ? '?status=' + status : '')).then((r) => r.json()),

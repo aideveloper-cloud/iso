@@ -388,6 +388,14 @@ async fn system_records(st: &S, c: &impl deadpool_postgres::GenericClient, meeti
                 format!("ผู้เข้าอบรม {n} คน · ล่าสุด {}", r.get::<_, String>(3)), vec![ev(&ref_no, "ใบรายชื่อผู้เข้าอบรม (FM-HR-008)")]));
         }
     }
+    // ความสามารถ (7.2): ผลของ training matrix
+    let tm = crate::training::summary(st, c).await;
+    if tm["requirements"].as_i64().unwrap_or(0) > 0 {
+        let gaps = tm["peopleWithGaps"].as_i64().unwrap_or(0);
+        resources.push(rec("SYS-TRAINING-MATRIX".into(), format!("Training matrix ผ่าน {}%", tm["rate"]), String::new(), if gaps > 0 { "attention" } else { "good" },
+            format!("ผ่าน {}/{} · หมดอายุ {} · พนักงานที่ยังขาด {gaps} คน · ข้อกำหนด {} รายการ", tm["met"], tm["cells"], tm["expired"], tm["requirements"]),
+            vec![ev("TRAINING", "เมนู Training matrix")]));
+    }
     // การรับรู้ (7.3): อัตราการรับทราบเอกสารฉบับปัจจุบัน
     let ak = crate::acks::facts(st, c).await;
     if ak["total"].as_i64().unwrap_or(0) > 0 {

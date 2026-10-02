@@ -24,6 +24,7 @@ mod eform;
 mod internalaudit;
 mod mreview;
 mod readiness;
+mod training;
 
 pub(crate) struct AppState {
     pub(crate) manifest: Vec<Value>,
@@ -183,6 +184,7 @@ async fn init_db(pool: &Pool) {
                 client.batch_execute(capa::SCHEMA).await.expect("ปรับตาราง CAR/DAR/PAR ไม่สำเร็จ");
                 client.batch_execute(internalaudit::SCHEMA).await.expect("สร้างตารางตรวจติดตามภายในไม่สำเร็จ");
                 client.batch_execute(acks::SCHEMA).await.expect("สร้างตารางการรับทราบเอกสารไม่สำเร็จ");
+                client.batch_execute(training::SCHEMA).await.expect("สร้างตาราง training matrix ไม่สำเร็จ");
                 return;
             }
             Err(e) => {
@@ -937,6 +939,11 @@ async fn main() {
         .route("/api/actions/:id", get(capa::get).put(capa::update))
         .route("/api/actions/:id/act", axum::routing::post(capa::act))
         .route("/api/audit-log", get(audittrail::list))
+        .route("/api/training/matrix", get(training::matrix))
+        .route("/api/training/history/:code", get(training::history))
+        .route("/api/training/reqs", axum::routing::post(training::create_req))
+        .route("/api/training/reqs/:id", axum::routing::put(training::update_req))
+        .route("/api/training/records", axum::routing::post(training::record))
         .route("/api/acks", get(acks::overview))
         .route("/api/acks/mine", get(acks::mine))
         .route("/api/acks/bulk", axum::routing::post(acks::request_bulk))
