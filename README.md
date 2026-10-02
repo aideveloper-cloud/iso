@@ -4,7 +4,7 @@
 
 ## สถาปัตยกรรม
 ```
-Svelte + Tailwind + Bun  (frontend, :5173)  ──►  Rust API (Axum, :8080)  ──►  PostgreSQL (:5432, Docker)
+Svelte + Tailwind + Bun  (frontend, :5173)  ──►  Rust API (Axum, :8085)  ──►  PostgreSQL (:5432, Docker)
         │                                              │
         └───────────── ผ่าน Vite proxy ───────────────┴──►  Go converter (:8081)  (docx → HTML)
 ```
@@ -20,7 +20,7 @@ Svelte + Tailwind + Bun  (frontend, :5173)  ──►  Rust API (Axum, :8080)  �
 Frontend เปิดรับจากทุก interface (`--host`) — เครื่องอื่นใน Wi‑Fi/LAN เดียวกันเข้าได้ที่:
 `http://<IP-เครื่องเซิร์ฟเวอร์>:5173`  
 (สคริปต์ `start-all.bat` จะพิมพ์ IP ให้ และพยายามเปิด Firewall พอร์ต 5173)  
-คำขอ `/api` ถูก proxy ผ่าน Vite ไปยัง API บนเครื่องเซิร์ฟเวอร์ ไม่ต้องเปิดพอร์ต 8080 ให้ LAN
+คำขอ `/api` ถูก proxy ผ่าน Vite ไปยัง API บนเครื่องเซิร์ฟเวอร์ ไม่ต้องเปิดพอร์ต 8085 ให้ LAN
 
 หรือรันแยกเอง:
 ```bash

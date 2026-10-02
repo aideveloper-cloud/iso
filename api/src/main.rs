@@ -972,7 +972,7 @@ async fn main() {
         .layer(axum::middleware::from_fn_with_state(state.clone(), eform::require_auth))
         .with_state(state);
 
-    let port = std::env::var("API_PORT").unwrap_or_else(|_| "8080".into());
+    let port = std::env::var("API_PORT").unwrap_or_else(|_| "8085".into());
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap();
     println!("\n  ✅ iso-api (Rust/Axum + PostgreSQL) พร้อมที่ http://localhost:{port}\n");
     axum::serve(listener, app).await.unwrap();
