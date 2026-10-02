@@ -1,0 +1,68 @@
+{
+  "form_code": "FM-HR-008",
+  "form_rev": "Rev.0",
+  "title": "ใบรายชื่อผู้เข้าร่วมอบรม / สัมมนา",
+  "effective": "20/05/2565",
+  "number_pattern": "{code}-{be}-{seq4}",
+  "approval_flow": [
+    { "step": "review", "label": "ผู้ตรวจสอบ" },
+    { "step": "approve", "label": "ผู้อนุมัติ" }
+  ],
+  "header_fields": [
+    { "key": "trainDate", "label": "อบรมวันที่", "type": "date", "required": true },
+    { "key": "timeStart", "label": "เวลาเริ่ม", "type": "time", "required": true },
+    { "key": "timeEnd", "label": "เวลาสิ้นสุด", "type": "time", "required": true },
+    {
+      "key": "place",
+      "label": "สถานที่",
+      "type": "select_or_text",
+      "required": true,
+      "options": ["ห้องประชุมกันตนา", "ห้องประชุมชั้น 4"]
+    },
+    { "key": "topic", "label": "เรื่อง / หลักสูตร", "type": "text", "required": true },
+    { "key": "trainer", "label": "ผู้อบรม / วิทยากร", "type": "text", "required": true },
+    {
+      "key": "courseType",
+      "label": "ลักษณะหลักสูตร",
+      "type": "radio",
+      "required": true,
+      "options": [
+        { "value": "ojt", "label": "อบรมหน้างาน (OJT)" },
+        { "value": "internal", "label": "อบรมภายใน" },
+        { "value": "external", "label": "อบรมภายนอก" },
+        { "value": "other", "label": "อื่น ๆ" }
+      ],
+      "otherKey": "courseTypeOther"
+    },
+    {
+      "key": "evalMethods",
+      "label": "วิธีการประเมิน",
+      "type": "checkbox",
+      "required": true,
+      "options": [
+        { "value": "ask", "label": "ซักถามหรือสาธิต" },
+        { "value": "test", "label": "ทำแบบทดสอบ" },
+        { "value": "other", "label": "อื่น ๆ" }
+      ],
+      "otherKey": "evalOther"
+    }
+  ],
+  "table_sections": [
+    {
+      "key": "participants",
+      "label": "ผู้เข้าร่วม",
+      "required": true,
+      "deptFill": true,
+      "copyPrevious": true,
+      "columns": [
+        { "key": "empCode", "label": "รหัสพนักงาน", "type": "employee" },
+        { "key": "name", "label": "ชื่อ-สกุล", "type": "text" },
+        { "key": "position", "label": "ตำแหน่ง", "type": "text" },
+        { "key": "dept", "label": "ฝ่าย/แผนก", "type": "text" },
+        { "key": "signature", "label": "ลงชื่อเข้าร่วม", "type": "signature" },
+        { "key": "result", "label": "ผลการอบรม", "type": "passfail" },
+        { "key": "note", "label": "หมายเหตุ", "type": "text" }
+      ]
+    }
+  ]
+}
