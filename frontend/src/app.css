@@ -323,6 +323,8 @@
   .ft-head b { @apply text-[13.5px] text-brand; }
   .ft-actions { @apply flex flex-wrap gap-2 items-center; }
   .ft-hint { @apply text-[12px] text-mut; }
+  .read-bar { @apply flex flex-wrap items-center gap-2 rounded-xl border border-line bg-[#f7fafc] px-3 py-2 mb-3 text-[12.5px]; }
+  .read-mode { @apply rounded-full bg-[#e6f4ea] text-[#1e6b34] px-2.5 py-0.5 font-semibold; }
   .status-active {
     @apply inline-flex items-center align-middle ml-2 px-2 py-[2px] rounded text-[11px] font-bold uppercase tracking-wide;
     background: #d8f3e0; color: #1b7a3a; border: 1px solid #a8dbb6;

@@ -29,6 +29,7 @@
   let draft = null // { bytes, ext }
   let savedMsg = ''
   let tab = 'doc'
+  let manage = false // false = โหมดอ่าน (ค่าเริ่มต้น) · true = แสดงเครื่องมือแก้ไข/อัปโหลด
 
   $: latestVer = versions[0]?.version
   $: isLatest = !ver || ver === latestVer
@@ -40,7 +41,7 @@
 
   function askConfirm(message, run) { confirmAction = { message, run } }
   function cancelEdit() { editing = false; dirty = false; load(ver) }
-  function startEdit() { editing = true; dirty = false }
+  function startEdit() { manage = true; editing = true; dirty = false }
   const nextV = () => (latestVer || content?.version || 1) + 1
 
   onMount(() => { load(); window.addEventListener('keydown', onKey) })
@@ -124,7 +125,9 @@
       <span class="grow"></span>
       {#if !loading && tab === 'doc' && content}
         <a class="mbtn gh inline-flex items-center gap-1.5" href={dl(ver)} download><Icon name="download" size={14} /> ดาวน์โหลด{ver ? ` v${ver}` : ''}</a>
-        {#if canEdit}<EditActions {editing} {dirty} on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />{/if}
+        {#if editing}<EditActions {editing} {dirty} on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
+        {:else if manage}<button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (manage = false)}><Icon name="eye" size={14} /> กลับโหมดอ่าน</button>
+        {:else if writer && isLatest}<button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => (manage = true)}><Icon name="pencil" size={14} /> แก้ไข / อัปโหลด</button>{/if}
       {/if}
     </nav>
     <input bind:this={uploadInput} type="file" class="hidden" on:change={onPickFile} />
@@ -158,6 +161,14 @@
           </div>
         {/if}
       {:else if content}
+        {#if !manage && !editing}
+          <div class="read-bar">
+            <span class="read-mode inline-flex items-center gap-1.5"><Icon name="eye" size={14} /> โหมดอ่าน</span>
+            <span class="mut">อ่านอย่างเดียว{#if writer && isLatest} — ต้องการแก้ไขให้กด “แก้ไข / อัปโหลด”{/if}</span>
+            <span class="grow"></span>
+            <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติ ({versions.length})</button>
+          </div>
+        {:else}
         <div class="file-tools">
           <div class="ft-head">
             <b>การแก้ไขไฟล์</b>
@@ -176,6 +187,8 @@
             <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติเวอร์ชัน ({versions.length})</button>
           </div>
         </div>
+        <ChangeHistory {versions} currentVer={shownVer} onDoc />
+        {/if}
 
         {#if !isLatest}
           <div class="ver-warn">
@@ -184,7 +197,6 @@
             <button class="vw-btn" on:click={() => load()}>ไปเวอร์ชันล่าสุด</button>
           </div>
         {/if}
-        <ChangeHistory {versions} currentVer={shownVer} onDoc />
 
         <DocBody bind:this={body} {content} name={file.name} origUrl={view(ver)} embedUrl={view(ver)} downloadUrl={dl(ver)} {editing} bind:dirty />
       {/if}

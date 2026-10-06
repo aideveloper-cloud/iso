@@ -37,6 +37,7 @@
 
   let meta = null, ver = null, content = null
   let dirty = false, editing = false, tab = 'doc'
+  let manage = false // false = โหมดอ่าน (ค่าเริ่มต้น) · true = แสดงเครื่องมือขอแก้ไข/แนบไฟล์/ยกเลิกใช้
   let signing = null // 'edit' | 'upload' | null
   let pendingUpload = null
   let err = '', loading = true
@@ -57,7 +58,8 @@
   $: canWebEdit = canChange && meta?.editable && content && content.kind !== 'download' && content.kind !== 'embed'
   $: canObsolete = !obsolete && !openChange && (me?.role === 'approver' || me?.role === 'admin')
   $: canReinstate = obsolete && me?.role === 'admin'
-  $: shownChange = changes.find((c) => c.id === selChange) || openChange || changes[0] || null
+  $: canManage = canChange || canObsolete
+  $: shownChange =changes.find((c) => c.id === selChange) || openChange || changes[0] || null
 
   function askConfirm(message, run) {
     confirmAction = { message, run }
@@ -70,6 +72,7 @@
   }
 
   function startEdit() {
+    manage = true
     editing = true
     dirty = false
   }
@@ -265,11 +268,12 @@
       <span class="grow"></span>
       {#if !loading && tab === 'doc' && meta}
         {#if content}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
-        {#if canChange}
-          <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => uploadInput.click()}><Icon name="cloud-upload" size={14} /> แนบไฟล์ขอแก้ไข</button>
-        {/if}
-        {#if canWebEdit}
+        {#if editing}
           <EditActions {editing} {dirty} updateLabel="ส่งขออนุมัติ" on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
+        {:else if manage}
+          <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (manage = false)}><Icon name="eye" size={14} /> กลับโหมดอ่าน</button>
+        {:else if canManage}
+          <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => (manage = true)}><Icon name="pencil" size={14} /> ขอแก้ไขเอกสาร</button>
         {/if}
       {/if}
     </nav>
@@ -303,6 +307,18 @@
       {#if loading}
         <div class="loadwrap"><span class="spin"></span><p class="mnote">กำลังเปิดเอกสาร…</p></div>
       {:else if tab === 'doc' && meta}
+        {#if !manage && !editing}
+          <div class="read-bar">
+            <span class="read-mode inline-flex items-center gap-1.5"><Icon name="eye" size={14} /> โหมดอ่าน</span>
+            <span class="mut">อ่านอย่างเดียว — ต้องการแก้ไขให้กด “ขอแก้ไขเอกสาร” (ผ่านคำขอ DCR และการอนุมัติ)</span>
+            <span class="grow"></span>
+            {#if doc.type === 'FM'}
+              <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'new' })}><Icon name="plus" size={14} /> กรอกแบบฟอร์มใหม่</button>
+              <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'list' })}>บันทึกที่กรอกแล้ว</button>
+            {/if}
+            <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติ ({meta.versions.length})</button>
+          </div>
+        {:else}
         <div class="file-tools">
           <div class="ft-head">
             <b>การแก้ไขเอกสาร</b>
@@ -332,8 +348,8 @@
             <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติการแก้ไข ({meta.versions.length})</button>
           </div>
         </div>
-
         <ChangeHistory versions={meta.versions || []} currentVer={ver} controlled onDoc />
+        {/if}
 
         {#if !content}
           <div class="nopreview">

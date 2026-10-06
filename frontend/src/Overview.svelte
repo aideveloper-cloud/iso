@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte'
-  import { fmtKB, fileExt, fileKind, isWebEditable } from './lib/const.js'
+  import { fmtKB, fileExt, fileKind } from './lib/const.js'
   import { api, ovFileUrl } from './lib/api.js'
   import { fmtWhen } from './lib/changeNote.js'
   import Icon from './Icon.svelte'
@@ -48,7 +48,7 @@
               {#if latest[f.path]}<span class="verpill" title="มี {latest[f.path].count} เวอร์ชัน">v{latest[f.path].version}</span><span class="ver-last-inline">อัปเดต {fmtWhen(latest[f.path].at)} โดย {latest[f.path].by}</span>{/if}</div>
             <span class="tag {chip.c}">{chip.t}</span>
             <div class="ov-btns">
-              <button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openFile(f)}><Icon name="eye" size={14} /> {isWebEditable(e) ? 'เปิด / แก้ไข' : 'เปิดดู'}</button>
+              <button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openFile(f)}><Icon name="eye" size={14} /> เปิดดู</button>
               <a class="open gh inline-flex items-center gap-1.5" href={ovFileUrl(f.path, 1)} download={f.name} on:click|stopPropagation><Icon name="download" size={14} /> ดาวน์โหลด</a>
             </div>
           </div>
