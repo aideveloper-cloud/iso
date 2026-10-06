@@ -45,7 +45,7 @@ pub async fn list(State(st): State<S>, Extension(u): Extension<AuthUser>, Query(
 }
 
 /// สำรองฐานข้อมูลทั้งหมดวันละครั้ง (pg_dump ผ่าน Docker) เก็บ 30 วันล่าสุด
-/// ตั้งชื่อ container ด้วย env BACKUP_PG_CONTAINER (ค่าเริ่มต้น iso-postgres)
+/// ตั้งชื่อ container ด้วย env BACKUP_PG_CONTAINER (ค่าเริ่มต้น iso-postgres; ตั้งเป็นค่าว่างเพื่อเรียก pg_dump ตรง)
 pub async fn db_backup(dir: &PathBuf) {
     let _ = std::fs::create_dir_all(dir);
     let container = std::env::var("BACKUP_PG_CONTAINER").unwrap_or_else(|_| "iso-postgres".into());
@@ -55,9 +55,17 @@ pub async fn db_backup(dir: &PathBuf) {
     let url = std::env::var("DATABASE_URL").unwrap_or_default();
     let kv = |k: &str, d: &str| url.split_whitespace().find_map(|p| p.strip_prefix(&format!("{k}=")).map(String::from)).unwrap_or_else(|| d.into());
     let (user, db) = (kv("user", "iso"), kv("dbname", "iso"));
-    let out = tokio::process::Command::new("docker")
-        .args(["exec", &container, "pg_dump", "-U", &user, &db])
-        .output().await;
+    // BACKUP_PG_CONTAINER ว่าง = API รันใน container เอง → เรียก pg_dump ต่อฐานข้อมูลตรง (ใช้ host/port/password จาก DATABASE_URL)
+    let out = if container.is_empty() {
+        tokio::process::Command::new("pg_dump")
+            .args(["-h", &kv("host", "localhost"), "-p", &kv("port", "5432"), "-U", &user, &db])
+            .env("PGPASSWORD", kv("password", ""))
+            .output().await
+    } else {
+        tokio::process::Command::new("docker")
+            .args(["exec", &container, "pg_dump", "-U", &user, &db])
+            .output().await
+    };
     match out {
         Ok(o) if o.status.success() && !o.stdout.is_empty() => {
             let tmp = target.with_extension("sql.part");

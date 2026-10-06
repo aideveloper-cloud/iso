@@ -1,0 +1,9 @@
+# ห้ามข้อมูลจริง (เอกสาร ข้อมูลพนักงาน backup) และ build artifact เข้าไปใน image
+data/
+api/target/
+frontend/node_modules/
+frontend/dist/
+converter/*.exe
+deploy/logs/
+.git/
+.claude/

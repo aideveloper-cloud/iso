@@ -1,0 +1,11 @@
+# Go converter (docx → html) — static binary
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY converter/ ./
+RUN rm -f *.exe && CGO_ENABLED=0 go build -o /iso-converter .
+
+FROM alpine:3.20
+RUN apk add --no-cache tzdata ca-certificates
+ENV TZ=Asia/Bangkok
+COPY --from=build /iso-converter /usr/local/bin/iso-converter
+CMD ["iso-converter"]
