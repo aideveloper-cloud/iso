@@ -2,7 +2,7 @@
   // เนื้อหาเอกสารที่ดู/แก้บนเว็บ — ใช้ร่วมกันระหว่าง DocViewer (ทะเบียน) และ FilePreview (คลังภาพรวม)
   //   Word  : แสดงตามรูปแบบเดิม แล้วแก้ย่อหน้า/แถวที่เปลี่ยนลงไฟล์ .docx ต้นฉบับ (lib/docxpatch.js)
   //   Excel : แสดงตามรูปแบบเดิม (merge, สี, เส้น, ความกว้าง) แล้วแก้เฉพาะเซลล์ที่เปลี่ยนในไฟล์ต้นฉบับ (lib/xlsxpatch.js)
-  import { tick } from 'svelte'
+  import { tick, onDestroy } from 'svelte'
   import * as XLSX from 'xlsx'
   import { b64ToBytes } from './lib/api.js'
   import { loadXlsxModel } from './lib/xlsxview.js'
@@ -17,6 +17,8 @@
   export let origUrl = '' // URL ไฟล์ต้นฉบับ (ใช้ดึง .docx มา patch)
   export let embedUrl = ''
   export let downloadUrl = ''
+  /** URL ไฟล์ PDF ที่แปลงจากต้นฉบับ (Word/Excel) — หน้าอ่านแสดง PDF ให้เหมือนต้นฉบับ 100% */
+  export let pdfUrl = ''
   export let editing = false
   export let dirty = false
   /** ชื่อปุ่มบันทึกที่อ้างถึงในข้อความแนะนำ */
@@ -28,6 +30,35 @@
   let note = ''
   let origBytes = null
   let baseline = null
+
+  // ---------- PDF (หน้าอ่าน) ----------
+  // ไม่ได้แก้ไขอยู่ + ไฟล์แปลงเป็น PDF ได้ → แสดง PDF; แปลงไม่สำเร็จ → กลับไปแสดงแบบ HTML/ตารางเดิม
+  let pdfSrc = ''
+  let pdfState = 'idle' // idle | loading | ok | fail
+  let pdfErr = ''
+  let pdfFor = ''
+  $: wantPdf = !editing && !!content?.pdf && !!pdfUrl
+  $: if (wantPdf && pdfFor !== pdfUrl) loadPdf(pdfUrl)
+
+  async function loadPdf(u) {
+    pdfFor = u
+    pdfState = 'loading'
+    pdfErr = ''
+    try {
+      const r = await fetch(u)
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`)
+      const blob = await r.blob()
+      if (pdfFor !== u) return
+      if (pdfSrc) URL.revokeObjectURL(pdfSrc)
+      pdfSrc = URL.createObjectURL(blob)
+      pdfState = 'ok'
+    } catch (e) {
+      if (pdfFor !== u) return
+      pdfState = 'fail'
+      pdfErr = e.message
+    }
+  }
+  onDestroy(() => { if (pdfSrc) URL.revokeObjectURL(pdfSrc) })
 
   // ---------- Excel ----------
   let sheets = []
@@ -181,7 +212,14 @@
   }
 </script>
 
-{#if content.kind === 'sheet'}
+{#if wantPdf && pdfState !== 'fail'}
+  {#if pdfState === 'ok'}
+    <iframe class="docframe pdfframe" src={pdfSrc + '#navpanes=0&view=FitH'} title={name}></iframe>
+  {:else}
+    <div class="loadwrap"><span class="spin"></span><p class="mnote">กำลังเตรียมเอกสารให้เหมือนต้นฉบับ…</p></div>
+  {/if}
+{:else if content.kind === 'sheet'}
+  {#if wantPdf && pdfState === 'fail'}<div class="mnote mb-2 inline-flex items-center gap-1.5"><Icon name="alert-triangle" size={13} /> แสดงแบบย่อ — แปลงเป็น PDF ไม่สำเร็จ ({pdfErr}) · ดาวน์โหลดไฟล์เพื่อดูฉบับสมบูรณ์</div>{/if}
   {#if sheetErr}
     <div class="merr"><span>{sheetErr}</span></div>
   {:else}
@@ -219,6 +257,7 @@
       on:paste={onPaste}
     ></div>
   {:else}
+    {#if wantPdf && pdfState === 'fail'}<div class="mnote mb-2 inline-flex items-center gap-1.5"><Icon name="alert-triangle" size={13} /> แสดงแบบย่อ — แปลงเป็น PDF ไม่สำเร็จ ({pdfErr}) · ดาวน์โหลดไฟล์เพื่อดูฉบับสมบูรณ์</div>{/if}
     <div class="dochtml" use:fitPages>{@html content.html}</div>
   {/if}
 {:else if content.kind === 'embed'}

@@ -2,7 +2,7 @@
   // ไฟล์ในคลังภาพรวมองค์กร (ไม่อยู่ในทะเบียน) — ดู · แก้บนเว็บ · อัปโหลดไฟล์ใหม่ ทุกครั้งเป็นเวอร์ชันใหม่ ไม่ทับของเดิม
   //   เก็บผู้แก้ไข วันเวลา ชื่อไฟล์ และย้อนดู/ดาวน์โหลดเวอร์ชันเก่าได้
   import { createEventDispatcher, onMount, onDestroy } from 'svelte'
-  import { api, ovFileUrl, bytesToB64 } from './lib/api.js'
+  import { api, ovFileUrl, ovPdfUrl, bytesToB64 } from './lib/api.js'
   import { fileExt, fileKind } from './lib/const.js'
   import { srcLabel, fmtWhen } from './lib/changeNote.js'
   import DocBody from './DocBody.svelte'
@@ -198,7 +198,7 @@
           </div>
         {/if}
 
-        <DocBody bind:this={body} {content} name={file.name} origUrl={view(ver)} embedUrl={view(ver)} downloadUrl={dl(ver)} {editing} bind:dirty />
+        <DocBody bind:this={body} {content} name={file.name} origUrl={view(ver)} embedUrl={view(ver)} downloadUrl={dl(ver)} pdfUrl={ovPdfUrl(file.path, ver)} {editing} bind:dirty />
       {/if}
     </div>
 

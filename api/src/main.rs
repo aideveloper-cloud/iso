@@ -23,6 +23,7 @@ mod doccontrol;
 mod eform;
 mod internalaudit;
 mod mreview;
+mod pdfview;
 mod readiness;
 mod training;
 
@@ -509,7 +510,8 @@ async fn health(State(st): State<S>) -> Json<Value> {
         .and_then(|a| TcpStream::connect_timeout(&a, Duration::from_millis(400)).ok())
         .is_some();
     let db_ok = st.db.get().await.is_ok();
-    Json(json!({ "service": "iso-api (Rust/Axum)", "api": "ok", "db": if db_ok {"ok"} else {"down"}, "converter": if conv {"ok"} else {"down"} }))
+    let pdf_ok = pdfview::ready().await;
+    Json(json!({ "service": "iso-api (Rust/Axum)", "api": "ok", "db": if db_ok {"ok"} else {"down"}, "converter": if conv {"ok"} else {"down"}, "pdf": if pdf_ok {"ok"} else {"down"} }))
 }
 
 async fn docs_list(State(st): State<S>) -> Json<Value> {
@@ -561,6 +563,13 @@ async fn versions(Path(code): Path<String>, State(st): State<S>) -> Response {
 }
 
 async fn preview_abs(st: &S, abs: &PathBuf, ext: &str) -> Value {
+    let mut v = preview_kind(st, abs, ext).await;
+    // หน้าอ่านใช้ PDF (เหมือนต้นฉบับ) — HTML/ตารางยังใช้สำหรับแก้บนเว็บ และเป็นทางสำรองถ้าแปลง PDF ไม่ได้
+    if pdfview::convertible(ext) { v["pdf"] = json!(true); }
+    v
+}
+
+async fn preview_kind(st: &S, abs: &PathBuf, ext: &str) -> Value {
     match ext {
         "xls" | "xlsx" => match fs::read(abs) {
             Ok(b) => json!({ "kind": "sheet", "ext": ext, "data": B64.encode(b) }),
@@ -923,6 +932,7 @@ async fn main() {
         .route("/api/changes/:id/cancel", axum::routing::post(doccontrol::cancel))
         .route("/api/docs/:code/content", get(content))
         .route("/api/docs/:code/file", get(file))
+        .route("/api/docs/:code/pdf", get(pdfview::doc_pdf))
         .route("/api/stats", get(stats))
         .route("/api/readiness", get(readiness::get))
         .route("/api/readiness/runs", get(readiness::runs).post(readiness::save_run))
@@ -959,6 +969,7 @@ async fn main() {
         .route("/api/ia/:id/items/:iid/car", axum::routing::post(internalaudit::raise_car))
         .route("/api/overview", get(overview))
         .route("/api/overview/file", get(overview_file))
+        .route("/api/overview/pdf", get(pdfview::overview_pdf))
         .route("/api/overview/content", get(overview_content))
         .route("/api/overview/save", axum::routing::post(overview_save))
         .route("/api/overview/history", get(overview_history))

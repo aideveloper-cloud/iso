@@ -33,6 +33,7 @@ services:
       DOCS_ROOT: /data
       DATABASE_URL: host=db port=5432 user=iso password=${DB_PASSWORD} dbname=iso
       BACKUP_PG_CONTAINER: ""   # pg_dump ต่อฐานข้อมูลตรง (ไม่มี docker ใน container)
+      GOTENBERG_URL: http://pdf:3000
     volumes:
       - ${DATA_DIR:-/opt/iso/data}:/data
 
@@ -46,6 +47,16 @@ services:
       CONVERTER_PORT: "8081"
     volumes:
       - ${DATA_DIR:-/opt/iso/data}:/data:ro   # API ส่ง path ไฟล์มาให้แปลง — ต้องเห็นโฟลเดอร์เดียวกัน
+
+  # แปลง Word/Excel → PDF สำหรับหน้าอ่านเอกสาร (เหมือนต้นฉบับ)
+  # ฟอนต์ไทยของเอกสาร (Angsana New ฯลฯ) วางที่ ${FONTS_DIR} — ไม่มีฟอนต์ = LibreOffice ใช้ฟอนต์ทดแทน ระยะ/ตัดหน้าอาจคลาด
+  pdf:
+    image: gotenberg/gotenberg:8
+    container_name: iso-pdf
+    restart: unless-stopped
+    command: ["gotenberg", "--api-timeout=120s", "--libreoffice-restart-after=50"]
+    volumes:
+      - ${FONTS_DIR:-/opt/iso/fonts}:/usr/local/share/fonts/custom:ro
 
   web:
     build: { context: ../.., dockerfile: deploy/digitalocean/Dockerfile.web }

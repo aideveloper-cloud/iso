@@ -142,6 +142,8 @@ export const api = {
 // ลิงก์ดาวน์โหลด/พรีวิวใช้คุกกี้ HttpOnly ที่ server ออกให้ตอน login (ไม่ใส่ token ใน URL — กันรั่วใน log/ประวัติเบราว์เซอร์)
 export const fileUrl = (code, v, dl) =>
   (`/api/docs/${encodeURIComponent(code)}/file?v=${v}${dl ? '&dl=1' : ''}`)
+export const pdfUrl = (code, v) => (`/api/docs/${encodeURIComponent(code)}/pdf?v=${v}`)
+export const ovPdfUrl = (p, v) => (`/api/overview/pdf?path=${encodeURIComponent(p)}${v ? `&v=${v}` : ''}`)
 export const changeFileUrl = (id, dl) => (`/api/changes/${id}/file${dl ? '?dl=1' : ''}`)
 export const ovFileUrl = (p, dl) =>
   (`/api/overview/file?path=${encodeURIComponent(p)}${dl ? '&dl=1' : ''}`)

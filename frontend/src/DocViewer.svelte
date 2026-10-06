@@ -1,7 +1,7 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte'
   import { srcLabel, fmtWhen, DCR_STATUS } from './lib/changeNote.js'
-  import { api, fileUrl, bytesToB64 } from './lib/api.js'
+  import { api, fileUrl, pdfUrl, bytesToB64 } from './lib/api.js'
   import DocBody from './DocBody.svelte'
   import SignDialog from './SignDialog.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -374,6 +374,7 @@
             origUrl={fileUrl(doc.code, ver)}
             embedUrl={fileUrl(doc.code, ver)}
             downloadUrl={fileUrl(doc.code, ver, true)}
+            pdfUrl={pdfUrl(doc.code, ver)}
             {editing}
             saveLabel="ส่งขออนุมัติ"
             bind:dirty

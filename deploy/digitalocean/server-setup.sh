@@ -25,7 +25,8 @@ else
   echo "ฐานข้อมูลมีข้อมูลอยู่แล้ว — ข้ามการกู้"
 fi
 
-docker compose up -d --build db api converter web
+mkdir -p /opt/iso/fonts
+docker compose up -d --build db pdf api converter web
 sleep 5
 docker exec iso-web bun -e "fetch('http://api:8085/api/health').then(r=>r.text()).then(console.log)"
 

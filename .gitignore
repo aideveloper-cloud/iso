@@ -26,3 +26,4 @@ data/eform/fmhr008-import.json
 deploy/digitalocean/.env
 deploy/digitalocean/cloudflared/*.json
 deploy/digitalocean/cloudflared/config.yml
+data/pdfcache/

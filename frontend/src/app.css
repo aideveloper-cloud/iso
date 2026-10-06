@@ -25,19 +25,19 @@
   .brand .tx b { @apply block text-[13.5px] leading-[1.35]; }
   .brand .tx small { @apply block text-mut text-[11px] leading-[1.4]; }
   .sidebar.slim .brand .tx { @apply hidden; }
-  nav { @apply flex flex-col gap-[2px] px-[10px] py-3 flex-1 overflow-y-auto overflow-x-hidden; }
+  .sidebar nav { @apply flex flex-col gap-[2px] px-[10px] py-3 flex-1 overflow-y-auto overflow-x-hidden; }
   .navgroup-label { @apply text-[10.5px] uppercase tracking-[0.06em] text-faint font-bold px-[10px] pt-[14px] pb-[6px] whitespace-nowrap overflow-hidden; }
   .sidebar.slim .navgroup-label { @apply opacity-0 h-2 pt-1 px-0; }
-  nav button {
+  .sidebar nav button {
     @apply flex items-center gap-[11px] bg-transparent border-none px-[11px] py-[10px] text-[13.5px] font-sans cursor-pointer rounded-sm text-left whitespace-nowrap w-full;
     color: #41506a;
   }
-  nav button .ic { @apply text-[16px] w-[18px] text-center flex-shrink-0; }
-  nav button .lb { @apply overflow-hidden text-ellipsis; }
+  .sidebar nav button .ic { @apply text-[16px] w-[18px] text-center flex-shrink-0; }
+  .sidebar nav button .lb { @apply overflow-hidden text-ellipsis; }
   .sidebar.slim nav button .lb { @apply hidden; }
   .sidebar.slim nav button { @apply justify-center px-0 py-[11px]; }
-  nav button:hover { @apply bg-brand-light text-brand; }
-  nav button.active { @apply bg-brand text-white font-bold; }
+  .sidebar nav button:hover { @apply bg-brand-light text-brand; }
+  .sidebar nav button.active { @apply bg-brand text-white font-bold; }
   .sidebar-foot { @apply p-[10px] border-t border-line; }
   .collapse-btn { @apply w-full bg-transparent border border-line rounded-sm p-2 font-sans text-[12px] text-mut cursor-pointer; }
   .collapse-btn:hover { @apply bg-brand-light text-brand border-brand-600; }
@@ -299,8 +299,8 @@
   .mhead .mx { @apply border-none text-white w-[30px] h-[30px] rounded-lg cursor-pointer text-[15px] flex-shrink-0; background: rgba(255,255,255,.2); }
   .mhead .mx:hover { background: rgba(255,255,255,.35); }
   .mtabs { @apply flex items-center gap-1 px-3 flex-wrap; border-bottom: 1px solid #e3e7ee; background: #fafbfd; }
-  .mtabs button { @apply bg-transparent border-none px-[14px] py-[11px] font-sans text-[13.5px] cursor-pointer text-mut; border-bottom: 3px solid transparent; }
-  .mtabs button.active { @apply text-brand font-bold; border-bottom-color: theme(colors.brand.DEFAULT); }
+  .mtabs button:not(.mbtn) { @apply bg-transparent border-none px-[14px] py-[11px] font-sans text-[13.5px] cursor-pointer text-mut; border-bottom: 3px solid transparent; }
+  .mtabs button.active:not(.mbtn) { @apply text-brand font-bold; border-bottom-color: theme(colors.brand.DEFAULT); }
   .mtabs .grow { @apply flex-1; }
   .mbtn { @apply font-sans text-[12.5px] font-semibold px-[15px] py-[8px] rounded-full text-white cursor-pointer my-[6px]; border: 1px solid theme(colors.brand.DEFAULT); background: theme(colors.brand.DEFAULT); transition: background .13s; }
   .mbtn:hover { @apply bg-brand-600; }
@@ -550,6 +550,7 @@
   .docx-page .docx-ftr { padding-top: 6px; margin-top: 8px; border-top: 1px dotted #d5dae3; }
   .docx-page .atom { cursor: default; }
   .docframe { @apply w-full h-[66vh] rounded-lg; border: 1px solid #e3e7ee; }
+  .pdfframe { @apply h-[78vh] bg-[#525659]; }
   .docimg { @apply max-w-full rounded-lg; border: 1px solid #e3e7ee; }
   .nopreview { @apply text-center px-5 py-10 text-mut; }
   .nopreview .big { @apply text-[44px] mb-2; }
@@ -617,7 +618,7 @@
   .sidebar { position: static; width: 100% !important; height: auto; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid theme(colors.line); overflow-x: auto; }
   .brand { border-bottom: none; }
   .sidebar.slim .brand .tx { display: block; }
-  nav { flex-direction: row; flex-wrap: nowrap; overflow: visible; }
+  .sidebar nav { flex-direction: row; flex-wrap: nowrap; overflow: visible; }
   .sidebar.slim nav button .lb { display: inline; }
   .sidebar-foot { display: none; }
   .gsearch { max-width: none; min-width: 0; }
