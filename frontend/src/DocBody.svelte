@@ -89,7 +89,10 @@
         if (!cl?.css) continue
         cl.css = cl.css.replace(/white-space:nowrap(;overflow:visible)?/, 'white-space:pre-wrap;word-break:break-word')
           // ฟอนต์จริงของไฟล์ (มักเป็น Angsana New ตัวเล็ก) ไม่ถูกเก็บ → ใช้ขนาดใกล้เคียงแทนฟอนต์มาตรฐานตัวใหญ่
-          .replace(/font-size:[^;]+;?/, '').replace(/font-family:[^;]+;?/, '') + ';font-size:10.5pt;font-family:Tahoma,Sarabun,sans-serif'
+          .replace(/font-size:[^;]+;?/, '').replace(/font-family:[^;]+;?/, '')
+          // เส้นขอบจริงของ .xls อ่านไม่ได้ → ใช้เส้นตารางเข้มขึ้นให้เห็นโครงตาราง · จัดกึ่งกลางแนวตั้งแบบหัวตารางส่วนใหญ่
+          .replaceAll('1px solid #e5e7eb', '1px solid #b9c3d1')
+          .replace(/vertical-align:[^;]+/, 'vertical-align:middle') + ';font-size:10.5pt;font-family:Tahoma,Sarabun,sans-serif'
       }
       sheets = m.sheets.filter((s) => !s.hidden)
       if (!sheets.length) sheets = m.sheets

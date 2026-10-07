@@ -24,17 +24,19 @@ fn gotenberg_url() -> String {
 }
 
 /// คืนไฟล์ PDF ของไฟล์ต้นฉบับ (แปลงใหม่ถ้ายังไม่มีในแคช)
-async fn pdf_bytes(st: &S, abs: &PathBuf, ext: &str) -> Result<Vec<u8>, String> {
+async fn pdf_bytes(st: &S, abs: &PathBuf, ext: &str, title: &str) -> Result<Vec<u8>, String> {
     let src = fs::read(abs).map_err(|e| format!("อ่านไฟล์ไม่ได้: {e}"))?;
     let dir = st.docs_root.join("pdfcache");
     // Excel: หนึ่งชีตต่อหนึ่งหน้า (เห็นทั้งตารางเหมือนเปิดใน Excel) — ตามค่าหน้าพิมพ์เดิม ตารางที่กว้างกว่า A4 จะถูกตัดคอลัมน์ข้ามหน้า
     let sheet = matches!(ext, "xls" | "xlsx");
-    let cached = dir.join(format!("{}{}.pdf", sha_hex(&src), if sheet { "-sheet" } else { "" }));
+    let key = sha_hex(&[src.as_slice(), title.as_bytes()].concat());
+    let cached = dir.join(format!("{key}{}.pdf", if sheet { "-sheet" } else { "" }));
     if let Ok(b) = fs::read(&cached) { return Ok(b); }
 
     let part = reqwest::multipart::Part::bytes(src).file_name(format!("document.{ext}"));
     let mut form = reqwest::multipart::Form::new().part("files", part);
     if sheet { form = form.text("singlePageSheets", "true"); }
+    if !title.is_empty() { form = form.text("metadata", serde_json::json!({ "Title": title }).to_string()); }
     let client = reqwest::Client::builder().timeout(Duration::from_secs(120)).build().map_err(|e| e.to_string())?;
     let res = client
         .post(format!("{}/forms/libreoffice/convert", gotenberg_url()))
@@ -70,7 +72,8 @@ pub async fn doc_pdf(Path(code): Path<String>, Query(q): Query<HashMap<String, S
     if !convertible(&ext) { return err(StatusCode::BAD_REQUEST, "ไฟล์ชนิดนี้ไม่ต้องแปลงเป็น PDF"); }
     acks::mark_opened(&st, &u, &code, v).await;
     let name = doccontrol::download_name(&st, &code, v, &filename).await;
-    match pdf_bytes(&st, &abs, &ext).await {
+    let title = st.by_code.get(&code).map(|d| format!("{code} {}", d["name"].as_str().unwrap_or(""))).unwrap_or_else(|| code.clone());
+    match pdf_bytes(&st, &abs, &ext, title.trim()).await {
         Ok(pdf) => pdf_response(pdf, &name),
         Err(e) => err(StatusCode::BAD_GATEWAY, &e),
     }
@@ -81,7 +84,8 @@ pub async fn overview_pdf(Query(q): Query<HashMap<String, String>>, State(st): S
     let rel = q.get("path").cloned().unwrap_or_default();
     let (abs, ext, name, _, _) = match crate::overview_live_file(&st, &rel, q.get("v").and_then(|v| v.parse().ok())).await { Ok(x) => x, Err(r) => return r };
     if !convertible(&ext) { return err(StatusCode::BAD_REQUEST, "ไฟล์ชนิดนี้ไม่ต้องแปลงเป็น PDF"); }
-    match pdf_bytes(&st, &abs, &ext).await {
+    let title = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(&name).to_string();
+    match pdf_bytes(&st, &abs, &ext, &title).await {
         Ok(pdf) => pdf_response(pdf, &name),
         Err(e) => err(StatusCode::BAD_GATEWAY, &e),
     }

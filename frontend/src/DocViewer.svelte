@@ -348,7 +348,7 @@
             <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติการแก้ไข ({meta.versions.length})</button>
           </div>
         </div>
-        <ChangeHistory versions={meta.versions || []} currentVer={ver} controlled onDoc />
+        {#if !editing}<ChangeHistory versions={meta.versions || []} currentVer={ver} controlled onDoc />{/if}
         {/if}
 
         {#if !content}
