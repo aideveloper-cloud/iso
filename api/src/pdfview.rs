@@ -27,11 +27,14 @@ fn gotenberg_url() -> String {
 async fn pdf_bytes(st: &S, abs: &PathBuf, ext: &str) -> Result<Vec<u8>, String> {
     let src = fs::read(abs).map_err(|e| format!("อ่านไฟล์ไม่ได้: {e}"))?;
     let dir = st.docs_root.join("pdfcache");
-    let cached = dir.join(format!("{}.pdf", sha_hex(&src)));
+    // Excel: หนึ่งชีตต่อหนึ่งหน้า (เห็นทั้งตารางเหมือนเปิดใน Excel) — ตามค่าหน้าพิมพ์เดิม ตารางที่กว้างกว่า A4 จะถูกตัดคอลัมน์ข้ามหน้า
+    let sheet = matches!(ext, "xls" | "xlsx");
+    let cached = dir.join(format!("{}{}.pdf", sha_hex(&src), if sheet { "-sheet" } else { "" }));
     if let Ok(b) = fs::read(&cached) { return Ok(b); }
 
     let part = reqwest::multipart::Part::bytes(src).file_name(format!("document.{ext}"));
-    let form = reqwest::multipart::Form::new().part("files", part);
+    let mut form = reqwest::multipart::Form::new().part("files", part);
+    if sheet { form = form.text("singlePageSheets", "true"); }
     let client = reqwest::Client::builder().timeout(Duration::from_secs(120)).build().map_err(|e| e.to_string())?;
     let res = client
         .post(format!("{}/forms/libreoffice/convert", gotenberg_url()))

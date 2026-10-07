@@ -79,11 +79,18 @@
       let bytes = b64ToBytes(c.data)
       if ((c.ext || '').toLowerCase() === 'xls') {
         // .xls เป็นไบนารีเก่า แพตช์ในที่เดิมไม่ได้ — อ่านผ่าน SheetJS แล้วเขียนกลับเป็น .xls
-        xlsWb = XLSX.read(bytes, { type: 'array' })
-        bytes = new Uint8Array(XLSX.write(xlsWb, { bookType: 'xlsx', type: 'array' }))
+        xlsWb = XLSX.read(bytes, { type: 'array', cellStyles: true }) // cellStyles: เก็บความกว้างคอลัมน์/ความสูงแถว
+        bytes = new Uint8Array(XLSX.write(xlsWb, { bookType: 'xlsx', type: 'array', cellStyles: true }))
       }
       xlsxBytes = bytes
       const m = loadXlsxModel(bytes)
+      // .xls: SheetJS ไม่เก็บรูปแบบการตัดบรรทัด → ให้ทุกเซลล์ตัดบรรทัดได้ หัวตารางยาว ๆ จะไม่ถูกตัดหาย
+      if (xlsWb) for (const sh of m.sheets) for (const row of sh.cells) for (const cl of row) {
+        if (!cl?.css) continue
+        cl.css = cl.css.replace(/white-space:nowrap(;overflow:visible)?/, 'white-space:pre-wrap;word-break:break-word')
+          // ฟอนต์จริงของไฟล์ (มักเป็น Angsana New ตัวเล็ก) ไม่ถูกเก็บ → ใช้ขนาดใกล้เคียงแทนฟอนต์มาตรฐานตัวใหญ่
+          .replace(/font-size:[^;]+;?/, '').replace(/font-family:[^;]+;?/, '') + ';font-size:10.5pt;font-family:Tahoma,Sarabun,sans-serif'
+      }
       sheets = m.sheets.filter((s) => !s.hidden)
       if (!sheets.length) sheets = m.sheets
       active = 0
