@@ -18,6 +18,13 @@
     const [y, m, d] = iso.split('-')
     return `${Number(d)} ${MONTHS[Number(m)] || ''} ${Number(y) + 543}`
   }
+  // หน้ากรอกแบบฟอร์ม: ความกว้างช่อง (จาก 6 คอลัมน์) และคลาสคอลัมน์ตาราง
+  const FIELD_SPAN = { date: 2, time: 1, select_or_text: 2, text: 3, radio: 6, checkbox: 6 }
+  const COL_CLASS = { employee: 'w-[110px]', signature: 'c w-[130px]', passfail: 'c w-[110px]', text: 'ef-txt' }
+  const stepLabel = (s) => ({
+    submit: 'ส่งอนุมัติ', return: 'ตีกลับ', cancel: 'ยกเลิก', amend: 'ขอแก้ไขบันทึก', import: 'นำเข้าจากเอกสารเดิม', create: 'สร้างบันทึก',
+    pass: s.step === 'approve' ? 'อนุมัติ' : 'ตรวจสอบผ่าน',
+  }[s.action] || s.action)
   const canWrite = () => me && me.role !== 'viewer'
   const isAdmin = () => me?.role === 'admin'
 
@@ -198,7 +205,12 @@
     w.document.write(html)
     w.document.close()
     w.focus()
-    setTimeout(() => w.print(), 400)
+    // รอฟอนต์ (Sarabun) และรูป (โลโก้/ลายเซ็น) โหลดครบก่อนสั่งพิมพ์
+    const ready = Promise.all([
+      w.document.fonts?.ready,
+      ...[...w.document.images].map((im) => (im.complete ? null : new Promise((ok) => { im.onload = im.onerror = ok }))),
+    ])
+    Promise.race([ready, new Promise((ok) => setTimeout(ok, 2500))]).then(() => w.print())
   }
 
   function exportXlsx() {
@@ -249,6 +261,15 @@
     if (sigRow < 0 || !canvas) return
     data.participants[sigRow].signature = canvas.toDataURL('image/png')
     data = data; dirty = true; sigRow = -1
+  }
+
+  function fieldText(f) {
+    const v = data[f.key]
+    const other = f.otherKey && data[f.otherKey] ? ` (${data[f.otherKey]})` : ''
+    if (f.type === 'date') return v ? thDate(v) : ''
+    if (f.type === 'checkbox') return (v || []).map((x) => optLabel(f, x)).join(', ') + other
+    if (f.type === 'radio') return v ? optLabel(f, v) + other : ''
+    return v || ''
   }
 
   function optLabel(field, value) {
@@ -335,116 +356,155 @@
     {/if}
 
     {#if schema}
-      <div class="grid gap-3 md:grid-cols-2">
-        {#each schema.header_fields || [] as f}
-          <div class="sgf">
-            <label>{f.label}{#if f.required} <em>*</em>{/if}</label>
-            {#if !editable()}
-              <div>{f.type === 'date' ? thDate(data[f.key]) : f.type === 'checkbox' ? (data[f.key] || []).map((v) => optLabel(f, v)).join(', ') : f.type === 'radio' ? optLabel(f, data[f.key]) : (data[f.key] || '—')} {f.otherKey && data[f.otherKey] ? `(${data[f.otherKey]})` : ''}</div>
-            {:else if f.type === 'date'}
-              <input type="date" value={data[f.key] || ''} on:input={(e) => setField(f.key, e.currentTarget.value)} />
-            {:else if f.type === 'time'}
-              <input type="time" value={data[f.key] || ''} on:input={(e) => setField(f.key, e.currentTarget.value)} />
-            {:else if f.type === 'select_or_text'}
-              <input list="places-{f.key}" value={data[f.key] || ''} on:input={(e) => setField(f.key, e.currentTarget.value)} />
-              <datalist id="places-{f.key}">{#each [...(f.options || []), ...places] as o}<option value={o}></option>{/each}</datalist>
-            {:else if f.type === 'radio'}
-              {#each f.options as o}
-                <label class="inline-flex items-center gap-1 mr-3"><input type="radio" name={f.key} checked={data[f.key] === o.value} on:change={() => setField(f.key, o.value)} /> {o.label}</label>
-              {/each}
-              {#if data[f.key] === 'other'}<input placeholder="ระบุ" value={data[f.otherKey] || ''} on:input={(e) => setField(f.otherKey, e.currentTarget.value)} />{/if}
-            {:else if f.type === 'checkbox'}
-              {#each f.options as o}
-                <label class="inline-flex items-center gap-1 mr-3"><input type="checkbox" checked={(data[f.key] || []).includes(o.value)} on:change={() => toggleCheck(f.key, o.value)} /> {o.label}</label>
-              {/each}
-              {#if (data[f.key] || []).includes('other')}<input placeholder="ระบุ" value={data[f.otherKey] || ''} on:input={(e) => setField(f.otherKey, e.currentTarget.value)} />{/if}
-            {:else}
-              <input value={data[f.key] || ''} on:input={(e) => setField(f.key, e.currentTarget.value)} />
-            {/if}
+      <div class="ef-paper">
+        <header class="ef-head">
+          <img class="ef-logo" src="/kg-logo.jpg" alt="K Garden" />
+          <div class="ef-title">
+            <div class="ef-org">บริษัท เค การ์เด้น แอนด์ เฟนซ์ จำกัด</div>
+            <h2>{schema.title}</h2>
+            <div class="ef-ref">เลขที่ <b>{rec.refNo}</b></div>
+          </div>
+          <div class="ef-code">
+            <b>{schema.form_code}</b>
+            <span>{schema.form_rev}</span>
+            <span>บังคับใช้ {schema.effective}</span>
+          </div>
+        </header>
+
+        <div class="ef-fields">
+          {#each schema.header_fields || [] as f}
+            <div class="ef-field" style="grid-column: span {FIELD_SPAN[f.type] || 3}">
+              <span class="ef-label">{f.label}{#if f.required && editable()} <em>*</em>{/if}</span>
+              {#if !editable()}
+                <div class="ef-val">{fieldText(f) || '—'}</div>
+              {:else if f.type === 'date'}
+                <input class="ef-in" type="date" value={data[f.key] || ''} on:input={(e) => setField(f.key, e.currentTarget.value)} />
+              {:else if f.type === 'time'}
+                <input class="ef-in" type="time" value={data[f.key] || ''} on:input={(e) => setField(f.key, e.currentTarget.value)} />
+              {:else if f.type === 'select_or_text'}
+                <input class="ef-in" list="places-{f.key}" placeholder="เลือกหรือพิมพ์" value={data[f.key] || ''} on:input={(e) => setField(f.key, e.currentTarget.value)} />
+                <datalist id="places-{f.key}">{#each [...(f.options || []), ...places] as o}<option value={o}></option>{/each}</datalist>
+              {:else if f.type === 'radio' || f.type === 'checkbox'}
+                <div class="ef-opts">
+                  {#each f.options as o}
+                    {@const on = f.type === 'radio' ? data[f.key] === o.value : (data[f.key] || []).includes(o.value)}
+                    <label class="ef-chip" class:on>
+                      {#if f.type === 'radio'}
+                        <input type="radio" name={f.key} checked={on} on:change={() => setField(f.key, o.value)} />
+                      {:else}
+                        <input type="checkbox" checked={on} on:change={() => toggleCheck(f.key, o.value)} />
+                      {/if}
+                      <span class="ef-mark {f.type}"></span>{o.label}
+                    </label>
+                  {/each}
+                  {#if f.type === 'radio' ? data[f.key] === 'other' : (data[f.key] || []).includes('other')}
+                    <input class="ef-in ef-other" placeholder="ระบุ" value={data[f.otherKey] || ''} on:input={(e) => setField(f.otherKey, e.currentTarget.value)} />
+                  {/if}
+                </div>
+              {:else}
+                <input class="ef-in" value={data[f.key] || ''} on:input={(e) => setField(f.key, e.currentTarget.value)} />
+              {/if}
+            </div>
+          {/each}
+        </div>
+
+        {#each schema.table_sections || [] as sec}
+          <div class="ef-sec">
+            <div class="ef-sec-h">
+              <b>{sec.label}</b><span class="ef-count">{(data.participants || []).length} คน</span>
+              <span class="flex-1"></span>
+              {#if editable()}
+                {#if sec.deptFill}
+                  <select class="ef-in ef-sm" on:change={(e) => { if (e.currentTarget.value) addDept(e.currentTarget.value); e.currentTarget.value = '' }}>
+                    <option value="">+ เพิ่มทั้งแผนก</option>
+                    {#each DEPTS as d}<option value={d}>{DEPTNAME[d]}</option>{/each}
+                  </select>
+                {/if}
+                {#if sec.copyPrevious}<button class="mbtn gh" on:click={copyPrev}>คัดลอกรายชื่อครั้งก่อน</button>{/if}
+                <button class="mbtn accent inline-flex items-center gap-1" on:click={addRow}><Icon name="plus" size={14} /> เพิ่มแถว</button>
+              {/if}
+            </div>
+            <div class="overflow-x-auto">
+              <table class="ef-table">
+                <thead><tr>
+                  <th class="c w-[46px]">ลำดับ</th>
+                  {#each sec.columns as c}<th class={COL_CLASS[c.type] || ''}>{c.label}</th>{/each}
+                  {#if editable()}<th class="w-[40px]"></th>{/if}
+                </tr></thead>
+                <tbody>
+                  {#each data.participants || [] as row, i}
+                    <tr>
+                      <td class="c">{i + 1}</td>
+                      {#each sec.columns as c}
+                        <td class={COL_CLASS[c.type] || ''}>
+                          {#if !editable()}
+                            {#if c.type === 'signature'}
+                              {#if row.signature}<img alt="ลายมือชื่อ" src={row.signature} class="ef-sig" />{:else if row.attendedAt}<span class="ef-ok">เช็คอินแล้ว</span>{:else}—{/if}
+                            {:else if c.type === 'passfail'}
+                              {#if row.result === 'pass'}<span class="ef-pass">✓ ผ่าน</span>{:else if row.result === 'fail'}<span class="ef-fail">✗ ไม่ผ่าน</span>{:else}—{/if}
+                            {:else}{row[c.key] || ''}{/if}
+                          {:else if c.type === 'employee'}
+                            <input class="ef-cell" placeholder="รหัส" bind:value={row.empCode} on:change={() => onEmp(i)} />
+                          {:else if c.type === 'passfail'}
+                            <select class="ef-cell" bind:value={row.result} on:change={() => (dirty = true)}><option value="">—</option><option value="pass">ผ่าน</option><option value="fail">ไม่ผ่าน</option></select>
+                          {:else if c.type === 'signature'}
+                            <button class="ef-signbtn" class:done={row.signature || row.attendedAt} on:click={() => startSign(i)}>
+                              {#if row.signature}<img alt="" src={row.signature} class="ef-sig" />{:else if row.attendedAt}เช็คอินแล้ว{:else}<Icon name="pen-line" size={13} /> เซ็นชื่อ{/if}
+                            </button>
+                          {:else}
+                            <input class="ef-cell" bind:value={row[c.key]} on:input={() => (dirty = true)} />
+                          {/if}
+                        </td>
+                      {/each}
+                      {#if editable()}<td class="c"><button class="ef-del" title="ลบแถว" on:click={() => delRow(i)}><Icon name="x" size={14} /></button></td>{/if}
+                    </tr>
+                  {:else}
+                    <tr><td class="ef-empty" colspan={sec.columns.length + (editable() ? 2 : 1)}>ยังไม่มีรายชื่อ{#if editable()} — กด “เพิ่มแถว” หรือ “เพิ่มทั้งแผนก”{/if}</td></tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
           </div>
         {/each}
-      </div>
 
-      {#each schema.table_sections || [] as sec}
-        <h3 class="mt-4">{sec.label}</h3>
-        {#if editable()}
-          <div class="flex flex-wrap gap-2 mb-2">
-            <button class="mbtn gh" on:click={addRow}>เพิ่มแถว</button>
-            {#if sec.copyPrevious}<button class="mbtn gh" on:click={copyPrev}>คัดลอกรายชื่อจากครั้งก่อน</button>{/if}
-            {#if sec.deptFill}
-              <select class="border border-line rounded-lg px-2" on:change={(e) => { if (e.currentTarget.value) addDept(e.currentTarget.value); e.currentTarget.value = '' }}>
-                <option value="">เพิ่มทั้งแผนก</option>
-                {#each DEPTS as d}<option value={d}>{DEPTNAME[d]}</option>{/each}
-              </select>
-            {/if}
-          </div>
+        <footer class="ef-foot">{schema.form_code} {schema.form_rev} · วันที่มีผลบังคับใช้ {schema.effective}</footer>
+      </div>
+    {/if}
+
+    <div class="ef-side">
+      <section class="ef-card">
+        <h4><Icon name="note" size={14} /> ไฟล์แนบ</h4>
+        {#if (rec.files || []).length}
+          <ul class="ef-files">{#each rec.files as f}<li><a href={`/api/forms/files/${f.id}`} on:click|preventDefault={async () => {
+            const r = await fetch(`/api/forms/files/${f.id}`, { headers: { Authorization: 'Bearer ' + (localStorage.getItem('isoToken') || '') } })
+            const b = await r.blob(); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = f.filename; a.click()
+          }}>{f.filename}</a></li>{/each}</ul>
+        {:else}<p class="note">ไม่มีไฟล์แนบ</p>{/if}
+        {#if editable()}<button class="mbtn gh mt-2" on:click={() => fileInput.click()}>แนบไฟล์</button><input bind:this={fileInput} type="file" class="hidden" on:change={onFile} />{/if}
+      </section>
+
+      {#if rec.checkinUrl && editable() || (rec.status === 'review' || rec.status === 'approve' || rec.status === 'approved')}
+        <section class="ef-card">
+          <h4><Icon name="layout-grid" size={14} /> QR เช็คอินผู้เข้าอบรม</h4>
+          <div class="w-32">{@html rec.checkinQr || ''}</div>
+          <div class="note break-all mt-1">{rec.checkinUrl}</div>
+        </section>
+      {/if}
+
+      <section class="ef-card">
+        <h4><Icon name="clock" size={14} /> ขั้นตอนการอนุมัติ</h4>
+        {#if (rec.steps || []).length}
+          <ol class="ef-steps">
+            {#each rec.steps as s}
+              <li class="s-{s.action}"><b>{stepLabel(s)}</b> · {s.actorName}<span class="note"> · {s.at?.slice(0, 16).replace('T', ' ')}</span>{#if s.comment}<div class="note">“{s.comment}”</div>{/if}</li>
+            {/each}
+          </ol>
+        {:else}<p class="note">ยังไม่ได้ส่งอนุมัติ</p>{/if}
+        {#if (rec.history || []).length > 1}
+          <div class="mt-2 flex flex-wrap gap-1">{#each rec.history as h}<button class="mbtn gh" on:click={() => openId(h.id)}>{h.refNo} ครั้งที่ {h.revNo} · {STATUS[h.status]}</button>{/each}</div>
         {/if}
-        <div class="overflow-x-auto">
-          <table class="w-full text-[13px]">
-            <thead><tr>
-              <th>ลำดับ</th>
-              {#each sec.columns as c}<th>{c.label}</th>{/each}
-              {#if editable()}<th></th>{/if}
-            </tr></thead>
-            <tbody>
-              {#each data.participants || [] as row, i}
-                <tr>
-                  <td>{i + 1}</td>
-                  {#each sec.columns as c}
-                    <td>
-                      {#if !editable()}
-                        {#if c.type === 'signature'}
-                          {#if row.signature}<img alt="" src={row.signature} class="h-8" />{:else if row.attendedAt}เช็คอินแล้ว{:else}—{/if}
-                        {:else if c.type === 'passfail'}
-                          {row.result === 'pass' ? 'ผ่าน' : row.result === 'fail' ? 'ไม่ผ่าน' : '—'}
-                        {:else}{row[c.key] || ''}{/if}
-                      {:else if c.type === 'employee'}
-                        <input class="w-24 border border-line rounded px-1" bind:value={row.empCode} on:change={() => onEmp(i)} />
-                      {:else if c.type === 'passfail'}
-                        <select bind:value={row.result} on:change={() => (dirty = true)}><option value="">—</option><option value="pass">ผ่าน</option><option value="fail">ไม่ผ่าน</option></select>
-                      {:else if c.type === 'signature'}
-                        <button class="mbtn gh" on:click={() => startSign(i)}>{row.signature ? 'ลงชื่อแล้ว' : 'เซ็น'}{row.attendedAt ? ' · เช็คอิน' : ''}</button>
-                      {:else}
-                        <input class="w-full border border-line rounded px-1" bind:value={row[c.key]} on:input={() => (dirty = true)} />
-                      {/if}
-                    </td>
-                  {/each}
-                  {#if editable()}<td><button class="mbtn gh" on:click={() => delRow(i)}>ลบ</button></td>{/if}
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {/each}
-    {/if}
-
-    <div class="mt-4">
-      <b>ไฟล์แนบ</b>
-      <ul>{#each rec.files || [] as f}<li><a href={`/api/forms/files/${f.id}`} on:click|preventDefault={async () => {
-        const r = await fetch(`/api/forms/files/${f.id}`, { headers: { Authorization: 'Bearer ' + (localStorage.getItem('isoToken') || '') } })
-        const b = await r.blob(); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = f.filename; a.click()
-      }}>{f.filename}</a></li>{/each}</ul>
-      {#if editable()}<button class="mbtn gh" on:click={() => fileInput.click()}>แนบไฟล์</button><input bind:this={fileInput} type="file" class="hidden" on:change={onFile} />{/if}
+      </section>
     </div>
-
-    {#if rec.checkinUrl && editable() || (rec.status === 'review' || rec.status === 'approve' || rec.status === 'approved')}
-      <div class="mt-3">
-        <b>QR เช็คอิน</b>
-        <div class="w-36">{@html rec.checkinQr || ''}</div>
-        <div class="note break-all">{rec.checkinUrl}</div>
-      </div>
-    {/if}
-
-    <h3 class="mt-4">ขั้นตอน</h3>
-    <ul class="text-[13px]">
-      {#each rec.steps || [] as s}
-        <li>{s.at?.slice(0, 16)} · {s.actorName} · {s.action} {s.comment ? `— ${s.comment}` : ''}</li>
-      {/each}
-    </ul>
-    {#if (rec.history || []).length > 1}
-      <h3>ฉบับทั้งหมด</h3>
-      {#each rec.history as h}<button class="mbtn gh" on:click={() => openId(h.id)}>{h.refNo} ครั้งที่ {h.revNo} · {STATUS[h.status]}</button>{/each}
-    {/if}
 
     <div class="sgact mt-3">
       {#if editable()}
@@ -452,7 +512,7 @@
         <button class="mbtn accent" on:click={submitRec}>ส่งอนุมัติ</button>
       {/if}
       {#if (rec.status === 'review' && me.role !== 'preparer' && me.role !== 'viewer' && (isAdmin() || rec.preparedBy !== me.empCode)) || (rec.status === 'approve' && (me.role === 'approver' || isAdmin()) && (isAdmin() || rec.preparedBy !== me.empCode))}
-        <input placeholder="ความเห็น / เหตุผลตีกลับ" bind:value={reason} />
+        <input class="ef-in max-w-[360px]" placeholder="ความเห็น / เหตุผลตีกลับ" bind:value={reason} />
         <button class="mbtn accent" on:click={() => act('pass')}>{rec.status === 'review' ? 'ตรวจผ่าน' : 'อนุมัติ'}</button>
         <button class="mbtn danger" on:click={() => act('return')}>ตีกลับ</button>
       {/if}
@@ -535,4 +595,77 @@
   th, td { border-bottom: 1px solid #E6EAF0; text-align: left; padding: 6px; vertical-align: top; }
   input, select, textarea { font: inherit; }
   .sgf input, .sgf select { min-height: 42px; }
+
+  /* ---------- หน้ากรอกแบบฟอร์ม: จัดเป็นแผ่นแบบฟอร์มเหมือนต้นฉบับ ---------- */
+  .ef-paper { background: #fff; border: 1px solid #dfe5ee; border-radius: 14px; box-shadow: 0 2px 10px rgba(16, 38, 77, .06); padding: 22px 26px 16px; max-width: 1100px; }
+  .ef-head { display: grid; grid-template-columns: 64px 1fr auto; gap: 16px; align-items: center; padding-bottom: 14px; border-bottom: 2px solid #0B3679; }
+  .ef-logo { width: 60px; height: 58px; object-fit: contain; }
+  .ef-title { text-align: center; }
+  .ef-org { font-size: 12px; color: #5b6b85; }
+  .ef-title h2 { margin: 2px 0 2px; font-size: 21px; font-weight: 700; color: #0B3679; }
+  .ef-ref { font-size: 12.5px; color: #41506a; }
+  .ef-code { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 12px; color: #41506a; border: 1px solid #dfe5ee; border-radius: 10px; padding: 6px 12px; background: #f7f9fc; }
+  .ef-code b { color: #0B3679; font-size: 13.5px; }
+
+  .ef-fields { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px 16px; padding: 16px 0 6px; }
+  .ef-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .ef-label { font-size: 12.5px; font-weight: 700; color: #41506a; }
+  .ef-label em { color: #c0392b; font-style: normal; }
+  .ef-in { width: 100%; min-height: 40px; padding: 8px 11px; border: 1px solid #cdd4df; border-radius: 9px; background: #fff; font-size: 13.5px; color: #1a2433; }
+  .ef-in:focus, .ef-cell:focus { outline: none; border-color: #0B3679; box-shadow: 0 0 0 3px rgba(11, 54, 121, .12); }
+  .ef-val { min-height: 32px; padding: 6px 2px; border-bottom: 1px dashed #c3ccd9; font-size: 14px; color: #1a2433; }
+
+  .ef-opts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .ef-chip { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid #cdd4df; border-radius: 999px; background: #fff; font-size: 13.5px; cursor: pointer; user-select: none; transition: background .12s, border-color .12s; }
+  .ef-chip:hover { border-color: #0B3679; }
+  .ef-chip input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .ef-chip:focus-within { box-shadow: 0 0 0 3px rgba(11, 54, 121, .15); }
+  .ef-mark { width: 16px; height: 16px; border: 1.5px solid #8a97ab; background: #fff; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .ef-mark.radio { border-radius: 50%; }
+  .ef-mark.checkbox { border-radius: 4px; }
+  .ef-chip.on { background: #eaf1fb; border-color: #0B3679; color: #0B3679; font-weight: 700; }
+  .ef-chip.on .ef-mark { border-color: #0B3679; background: #0B3679; }
+  .ef-chip.on .ef-mark.radio { box-shadow: inset 0 0 0 3px #fff; }
+  .ef-chip.on .ef-mark.checkbox::after { content: ''; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); }
+  .ef-other { width: 220px; min-height: 36px; }
+
+  .ef-sec { margin-top: 18px; }
+  .ef-sec-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .ef-sec-h b { font-size: 15px; color: #0B3679; }
+  .ef-count { font-size: 12px; color: #5b6b85; background: #eef2f7; border-radius: 999px; padding: 2px 9px; }
+  .ef-sm { width: auto; min-height: 36px; padding: 6px 10px; }
+  .ef-table { width: 100%; border-collapse: collapse; font-size: 13px; border: 1px solid #c9d2df; }
+  .ef-table th { background: #eaf1fb; color: #0B3679; font-weight: 700; padding: 8px 8px; border: 1px solid #c9d2df; text-align: left; white-space: nowrap; }
+  .ef-table td { padding: 4px 6px; border: 1px solid #dfe5ee; vertical-align: middle; height: 42px; }
+  .ef-table tbody tr:nth-child(even) td { background: #fafbfd; }
+  .ef-table .c { text-align: center; }
+  .ef-table .ef-txt { min-width: 140px; }
+  .ef-cell { width: 100%; min-height: 32px; padding: 4px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; font-size: 13px; }
+  .ef-cell:hover { border-color: #dfe5ee; background: #fff; }
+  .ef-signbtn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 100px; height: 32px; border: 1px dashed #9aa8bd; border-radius: 6px; background: #fff; color: #41506a; font-size: 12.5px; cursor: pointer; }
+  .ef-signbtn.done { border-style: solid; border-color: #b9d8c2; background: #f2faf4; color: #1e6b34; }
+  .ef-sig { height: 30px; max-width: 120px; object-fit: contain; }
+  .ef-pass { color: #1e6b34; font-weight: 700; }
+  .ef-fail { color: #c0392b; font-weight: 700; }
+  .ef-ok { color: #1e6b34; }
+  .ef-del { width: 28px; height: 28px; border: none; border-radius: 6px; background: transparent; color: #8a97ab; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .ef-del:hover { background: #fdecea; color: #c0392b; }
+  .ef-empty { text-align: center; color: #8a97ab; padding: 18px !important; height: auto !important; }
+  .ef-foot { margin-top: 14px; padding-top: 8px; border-top: 1px solid #e6eaf0; font-size: 11.5px; color: #8a97ab; }
+
+  .ef-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; max-width: 1100px; }
+  .ef-card { background: #fff; border: 1px solid #dfe5ee; border-radius: 12px; padding: 12px 14px; }
+  .ef-card h4 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 13.5px; color: #0B3679; }
+  .ef-files { margin: 0; padding-left: 18px; font-size: 13px; }
+  .ef-steps { margin: 0; padding-left: 18px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+  .ef-steps .s-return b, .ef-steps .s-cancel b { color: #c0392b; }
+  .ef-steps .s-pass b { color: #1e6b34; }
+
+  @media (max-width: 760px) {
+    .ef-paper { padding: 14px; }
+    .ef-head { grid-template-columns: 48px 1fr; }
+    .ef-code { grid-column: 1 / -1; flex-direction: row; gap: 10px; align-items: center; }
+    .ef-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ef-field { grid-column: 1 / -1 !important; }
+  }
 </style>

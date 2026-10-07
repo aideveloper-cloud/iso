@@ -1028,7 +1028,18 @@ fn print_payload(cur: &Value, schema: &Value, origin: &str, token: &str) -> Valu
             };
             if key == "timeStart" { continue; }
             if key == "timeEnd" {
-                fields.push(json!({ "label": "เวลา", "value": format!("{}–{}", data["timeStart"].as_str().unwrap_or(""), data["timeEnd"].as_str().unwrap_or("")) }));
+                fields.push(json!({ "label": "เวลา", "value": format!("{} – {} น.", data["timeStart"].as_str().unwrap_or(""), data["timeEnd"].as_str().unwrap_or("")) }));
+                continue;
+            }
+            if typ == "radio" || typ == "checkbox" {
+                let picked: Vec<String> = if typ == "radio" { vec![data[key].as_str().unwrap_or("").to_string()] }
+                    else { data[key].as_array().cloned().unwrap_or_default().iter().filter_map(|v| v.as_str().map(String::from)).collect() };
+                let opts: Vec<Value> = f["options"].as_array().cloned().unwrap_or_default().iter().map(|o| {
+                    let v = o["value"].as_str().unwrap_or("");
+                    json!({ "label": o["label"].as_str().unwrap_or(v), "on": picked.iter().any(|p| p == v) })
+                }).collect();
+                let other = f["otherKey"].as_str().map(|k| data[k].as_str().unwrap_or("").trim().to_string()).unwrap_or_default();
+                fields.push(json!({ "label": label, "value": value, "options": opts, "other": other }));
                 continue;
             }
             fields.push(json!({ "label": label, "value": value }));
@@ -1039,7 +1050,7 @@ fn print_payload(cur: &Value, schema: &Value, origin: &str, token: &str) -> Valu
     if let Some(sec) = schema["table_sections"].as_array().and_then(|a| a.first()) {
         let cols = sec["columns"].as_array().cloned().unwrap_or_default();
         for c in &cols {
-            if c["type"].as_str() == Some("signature") { columns.push(json!("ลงชื่อ / เช็คอิน")); }
+            if c["type"].as_str() == Some("signature") { columns.push(json!("ลายมือชื่อ")); }
             else { columns.push(json!(c["label"])); }
         }
         for (i, p) in data["participants"].as_array().cloned().unwrap_or_default().iter().enumerate() {
@@ -1049,11 +1060,13 @@ fn print_payload(cur: &Value, schema: &Value, origin: &str, token: &str) -> Valu
                 let key = c["key"].as_str().unwrap_or("");
                 let typ = c["type"].as_str().unwrap_or("");
                 let val = if typ == "signature" {
-                    if p["attendedAt"].as_str().unwrap_or("").is_empty() && p["signature"].as_str().unwrap_or("").is_empty() { "—".into() }
-                    else if !p["attendedAt"].as_str().unwrap_or("").is_empty() { format!("เช็คอิน {}", th_when(p["attendedAt"].as_str().unwrap_or(""))) }
-                    else { "ลงชื่อแล้ว".into() }
+                    let sig = p["signature"].as_str().unwrap_or("");
+                    let at = p["attendedAt"].as_str().unwrap_or("");
+                    if sig.starts_with("data:image/") { sig.to_string() }
+                    else if !at.is_empty() { format!("เช็คอิน {}", th_when(at)) }
+                    else { String::new() }
                 } else if key == "result" {
-                    match p[key].as_str().unwrap_or("") { "pass" => "ผ่าน".into(), "fail" => "ไม่ผ่าน".into(), v => v.into() }
+                    match p[key].as_str().unwrap_or("") { "pass" => "☑ ผ่าน".into(), "fail" => "☒ ไม่ผ่าน".into(), v => v.into() }
                 } else { p[key].as_str().unwrap_or("").to_string() };
                 cells.push(Value::String(val));
             }
@@ -1341,6 +1354,12 @@ pub async fn print_with_steps(st: &S, id: i64, origin: &str) -> Result<String, S
             "label": label, "name": s.get::<_, String>(2), "at": th_when(&s.get::<_, String>(5)),
             "comment": format!("{} {}", s.get::<_, String>(3), s.get::<_, String>(4)).trim().to_string(),
         }));
+    }
+    for f in schema["approval_flow"].as_array().cloned().unwrap_or_default() {
+        let label = if f["step"].as_str() == Some("approve") { "ผู้อนุมัติ" } else { "ผู้ตรวจสอบ" };
+        if !approvals.iter().any(|a| a["label"].as_str() == Some(label)) {
+            approvals.push(json!({ "label": label, "name": "", "at": "", "comment": "" }));
+        }
     }
     payload["approvals"] = Value::Array(approvals);
     let body = payload.to_string();
