@@ -1,0 +1,30 @@
+# Rust API (iso-api) สำหรับ ServerKG (Mac M-series → linux/arm64)
+# compile ข้ามสถาปัตยกรรมบนเครื่อง dev (BUILDPLATFORM) ไม่ต้องจำลอง ARM ทั้งตัว -> เร็วกว่ามาก
+FROM --platform=$BUILDPLATFORM rust:1-bookworm AS build
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = arm64 ]; then \
+      apt-get update && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+      && rm -rf /var/lib/apt/lists/* && rustup target add aarch64-unknown-linux-gnu; fi
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+WORKDIR /src
+COPY api/Cargo.toml api/Cargo.lock ./
+COPY api/src ./src
+RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/src/target \
+    T=$([ "$TARGETARCH" = arm64 ] && echo aarch64-unknown-linux-gnu || echo x86_64-unknown-linux-gnu) \
+ && cargo build --release --target $T && cp target/$T/release/iso-api /iso-api
+
+FROM debian:bookworm-slim
+# pg_dump (backup รายวัน) ต้องเวอร์ชันเดียวกับ kgf-postgres -> kgf-iso.sh ส่ง PG_MAJOR ตามที่ server ใช้จริง
+ARG PG_MAJOR=16
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tzdata curl gnupg \
+ && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg \
+ && echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update && apt-get install -y --no-install-recommends postgresql-client-$PG_MAJOR \
+ && apt-get purge -y gnupg && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+ENV TZ=Asia/Bangkok
+WORKDIR /app
+COPY --from=build /iso-api /app/iso-api
+EXPOSE 8085
+CMD ["/app/iso-api"]
