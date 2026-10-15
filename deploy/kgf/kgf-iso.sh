@@ -53,6 +53,8 @@ setup)
     unset PW
     echo "  ✔ สร้างแล้ว (รหัสเก็บใน $DIR/.env บน server เท่านั้น)"
   fi
+  # ONLYOFFICE ลงนาม/ตรวจ JWT ร่วมกับ iso-api
+  R "grep -q '^ONLYOFFICE_JWT_SECRET=' $DIR/.env || echo ONLYOFFICE_JWT_SECRET=\$(head -c 32 /dev/urandom | base64 | tr -dc A-Za-z0-9) >> $DIR/.env"
 
   echo "== ฟอนต์เอกสาร (ไทย + Office) → volume iso-fonts =="
   ( cd "$FONTS_DIR" && ls | grep -iE '^(angsana|browalia|cordia|upc[a-z]+|tahoma|leela|arial|times|calibri|cambria|cour[a-z]*\.ttf|micross|segoeui|symbol|wingding)' \
@@ -64,7 +66,7 @@ setup)
   [ -f "$CF_DIR/$TID.json" ] || { echo "✖ ไม่พบ $CF_DIR/$TID.json"; exit 1; }
   TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
   cp "$CF_DIR/$TID.json" "$TMP/"
-  printf 'tunnel: %s\ncredentials-file: /etc/cloudflared/%s.json\ningress:\n  - hostname: iso.kgarden.co.th\n    service: http://iso-web:8090\n  - service: http_status:404\n' "$TID" "$TID" > "$TMP/config.yml"
+  printf 'tunnel: %s\ncredentials-file: /etc/cloudflared/%s.json\ningress:\n  - hostname: iso.kgarden.co.th\n    service: http://iso-web:8090\n  - hostname: iso-office.kgarden.co.th\n    service: http://iso-office:80\n  - service: http_status:404\n' "$TID" "$TID" > "$TMP/config.yml"
   tar czf - -C "$TMP" . | to_volume iso-cloudflared
   echo "  ✔ เสร็จ — ต่อไป: kgf-iso.sh deploy แล้ว kgf-iso.sh data" ;;
 # -------------------------------------------------------------

@@ -1,5 +1,5 @@
 # iso.kgarden.co.th บน ServerKG (192.168.1.15, Colima) — kgf-iso.sh ส่งไฟล์นี้ไปที่ ~/server/apps/iso/docker-compose.yml
-# ฐานข้อมูลใช้ kgf-postgres กลาง (network kgf) · ค่าลับอยู่ใน .env บน server (DB_PASSWORD)
+# ฐานข้อมูลใช้ kgf-postgres กลาง (network kgf) · ค่าลับอยู่ใน .env บน server (DB_PASSWORD, ONLYOFFICE_JWT_SECRET)
 # ข้อมูลเอกสาร/เวอร์ชัน/backup, ฟอนต์ และ credentials ของ tunnel เก็บใน named volume (ไม่พึ่ง mount ของ Colima)
 name: iso
 
@@ -16,6 +16,11 @@ services:
       DATABASE_URL: host=kgf-postgres port=5432 user=iso password=${DB_PASSWORD:?ตั้ง DB_PASSWORD ใน .env} dbname=iso
       BACKUP_PG_CONTAINER: ""   # pg_dump ต่อ kgf-postgres ตรง (ไม่มี docker ใน container)
       GOTENBERG_URL: http://iso-pdf:3000
+      # ตัวแก้ไขเอกสารบนเว็บ (ONLYOFFICE) — เบราว์เซอร์เปิดที่ iso-office.kgarden.co.th, ส่วน container คุยกันภายใน network
+      ONLYOFFICE_URL: https://iso-office.kgarden.co.th
+      ONLYOFFICE_INTERNAL_URL: http://iso-office
+      ISO_INTERNAL_URL: http://iso-api:8085
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:?ตั้ง ONLYOFFICE_JWT_SECRET ใน .env}
     volumes:
       - iso-data:/data
     networks: [kgf]
@@ -45,6 +50,25 @@ services:
     networks: [kgf]
     logging: *log
 
+  # ตัวแก้ไข Word/Excel บนเว็บ — เปิดผ่าน tunnel ที่ iso-office.kgarden.co.th (ไม่เปิดพอร์ตบนเครื่อง)
+  # ดึงไฟล์จาก/ส่ง callback ไปที่ iso-api ภายใน network (ALLOW_PRIVATE_IP_ADDRESS) และตรวจ JWT ทุกคำขอ
+  office:
+    image: onlyoffice/documentserver:9.0
+    container_name: iso-office
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "false"
+      TZ: Asia/Bangkok
+    volumes:
+      - iso-fonts:/usr/share/fonts/truetype/custom:ro
+      - iso-office-data:/var/www/onlyoffice/Data
+      - iso-office-logs:/var/log/onlyoffice
+    networks: [kgf]
+    logging: *log
+
   web:
     image: kgf/iso-web:latest
     pull_policy: never
@@ -66,8 +90,10 @@ services:
     container_name: iso-tunnel
     restart: unless-stopped
     profiles: [tunnel]
-    depends_on: [web]
+    depends_on: [web, office]
     command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    # ไม่พึ่ง DNS ของ macOS/Colima — 15/10/2569 เครื่อง Mac เสีย DNS แล้ว tunnel หลุด (Error 1033)
+    dns: [1.1.1.1, 8.8.8.8]
     volumes:
       - iso-cloudflared:/etc/cloudflared:ro
     networks: [kgf]
@@ -78,6 +104,9 @@ volumes:
   iso-data: { external: true, name: iso_iso-data }
   iso-fonts: { external: true, name: iso_iso-fonts }
   iso-cloudflared: { external: true, name: iso_iso-cloudflared }
+  # สถานะภายในของ ONLYOFFICE (ไม่ใช่เอกสารควบคุม — ไฟล์จริงอยู่ใน iso-data)
+  iso-office-data:
+  iso-office-logs:
 
 networks:
   kgf:

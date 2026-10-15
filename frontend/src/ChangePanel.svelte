@@ -7,6 +7,7 @@
   import SignDialog from './SignDialog.svelte'
   import DecisionDialog from './DecisionDialog.svelte'
   import EditActions from './EditActions.svelte'
+  import OfficeEdit from './OfficeEdit.svelte'
   import Icon from './Icon.svelte'
 
   export let change // รายละเอียดจาก /api/changes/:id (มี steps, can)
@@ -18,13 +19,15 @@
   let editing = false, dirty = false
   let body // DocBody
   let deciding = null // { kind: 'pass'|'return'|'cancel' }
-  let resubmit = null // { dataBase64?, ext?, filename?, source?, label }
+  let resubmit = null // { dataBase64?, ext?, filename?, source?, editId?, label }
+  let gEdit = false // แก้ฉบับร่างที่ถูกตีกลับในตัวแก้ไขบนเว็บ (ONLYOFFICE)
   let uploadInput
   let err = ''
 
   $: np = noteParts(change)
   $: can = change?.can || {}
   $: lastReturn = (change?.steps || []).filter((s) => s.action === 'return').slice(-1)[0]
+  $: canWebOffice = can.resubmit && ['docx', 'xlsx', 'xls'].includes(change?.ext)
   $: editableDraft = can.resubmit && content && (content.kind === 'html' || content.kind === 'sheet')
   $: if (change?.id) loadContent(change.id, change.sha256)
 
@@ -105,6 +108,7 @@
     const r = await api.changeResubmit(change.id, { ...file, note, reason, newRev, pin })
     if (!r.ok) { fail(r.body.error || 'ส่งใหม่ไม่สำเร็จ'); return }
     resubmit = null
+    gEdit = false
     change = r.body
     dispatch('changed', { change: r.body })
   }
@@ -147,7 +151,12 @@
       <button class="mbtn danger" on:click={() => (deciding = 'return')}>ตีกลับ</button>
     {/if}
     {#if can.resubmit}
-      {#if editableDraft}
+      {#if canWebOffice && !editing}
+        <button class="mbtn {gEdit ? 'gh' : 'accent'} inline-flex items-center gap-1.5" on:click={() => (gEdit = !gEdit)}>
+          <Icon name={gEdit ? 'eye' : 'pencil'} size={14} /> {gEdit ? 'ดูฉบับร่างที่ส่งไว้' : 'แก้ไขฉบับร่าง'}
+        </button>
+      {/if}
+      {#if editableDraft && !gEdit}
         <EditActions {editing} {dirty} updateLabel="ส่งใหม่เพื่อตรวจสอบ" editLabel="แก้ไขฉบับร่างบนเว็บ" on:cancel={() => { editing = false; dirty = false; loadedKey = ''; loadContent(change.id, change.sha256) }} on:start={() => { editing = true; dirty = false }} on:update={startResubmitFromEdit} />
       {/if}
       <button class="mbtn inline-flex items-center gap-1.5" on:click={() => uploadInput.click()}><Icon name="cloud-upload" size={14} /> แนบไฟล์ใหม่</button>
@@ -183,7 +192,11 @@
   </table>
 
   <h4 class="dcr-sub">ฉบับร่าง {change.newRev}{#if change.status !== 'effective'} <span class="mut">— ยังไม่มีผลบังคับใช้</span>{/if}</h4>
-  {#if loadingContent}
+  {#if gEdit && canWebOffice}
+    <OfficeEdit code={doc.code} changeId={change.id} submitLabel="ส่งใหม่เพื่อตรวจสอบ"
+      on:submit={(e) => (resubmit = { editId: e.detail.editId, label: 'ฉบับที่แก้ในตัวแก้ไขเอกสาร → ส่งใหม่เพื่อตรวจสอบ' })}
+      on:closed={() => (gEdit = false)} />
+  {:else if loadingContent}
     <div class="loadwrap"><span class="spin"></span></div>
   {:else if contentErr}
     <div class="merr">{contentErr}</div>

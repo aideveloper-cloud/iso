@@ -8,6 +8,7 @@
   import ChangeHistory from './ChangeHistory.svelte'
   import EditActions from './EditActions.svelte'
   import ChangePanel from './ChangePanel.svelte'
+  import OfficeEdit from './OfficeEdit.svelte'
   import DocAcks from './DocAcks.svelte'
   import DecisionDialog from './DecisionDialog.svelte'
   import Icon from './Icon.svelte'
@@ -38,7 +39,9 @@
   let meta = null, ver = null, content = null
   let dirty = false, editing = false, tab = 'doc'
   let manage = false // false = โหมดอ่าน (ค่าเริ่มต้น) · true = แสดงเครื่องมือขอแก้ไข/แนบไฟล์/ยกเลิกใช้
-  let signing = null // 'edit' | 'upload' | null
+  let signing = null // 'edit' | 'upload' | 'office' | null
+  let gEdit = false // แสดงตัวแก้ไขเอกสารบนเว็บ (ONLYOFFICE) แทนตัวเอกสาร
+  let gEditId = null // รอบแก้ไขที่กำลังส่งขออนุมัติ
   let pendingUpload = null
   let err = '', loading = true
   let uploadInput
@@ -56,6 +59,8 @@
   // แก้เอกสารควบคุมได้เฉพาะผ่าน DCR: ไม่มีคำขอค้าง, ไม่ถูกยกเลิกใช้, ไม่ใช่บัญชีอ่านอย่างเดียว
   $: canChange = !!meta && isLatest && !openChange && !obsolete && me?.role !== 'viewer'
   $: canWebEdit = canChange && meta?.editable && content && content.kind !== 'download' && content.kind !== 'embed'
+  // ตัวแก้ไขบนเว็บ (ONLYOFFICE) แก้ได้เฉพาะ Word/Excel
+  $: canWebOffice = canChange && ['docx', 'xlsx', 'xls'].includes(meta?.ext)
   $: canObsolete = !obsolete && !openChange && (me?.role === 'approver' || me?.role === 'admin')
   $: canReinstate = obsolete && me?.role === 'admin'
   $: canManage = canChange || canObsolete
@@ -82,7 +87,7 @@
   }
 
   onMount(() => {
-    load().then(loadAcks)
+    load().then(loadAcks).then(resumeWebOffice)
     loadChanges().then(() => {
       if (initialChange && changes.some((c) => c.id === initialChange)) { selChange = initialChange; tab = 'dcr' }
     })
@@ -92,6 +97,20 @@
 
   function onKey(e) {
     if (e.key === 'Escape' && !signing && !confirmAction && !statusAct) close()
+  }
+
+  /** มีรอบแก้ไขค้างอยู่ (เช่น รีเฟรชหน้าระหว่างแก้) → เปิดตัวแก้ไขต่อให้เลย งานที่บันทึกไว้ไม่หาย */
+  async function resumeWebOffice() {
+    try {
+      const s = await api.editMine(doc.code)
+      if (s && !s.changeId) openWebOffice()
+    } catch (e) { /* ไม่มีรอบค้าง */ }
+  }
+
+  function openWebOffice() {
+    tab = 'doc'
+    manage = true
+    gEdit = true
   }
 
   async function loadChanges() {
@@ -183,6 +202,15 @@
     const { note, reason, newRev, pin, fail } = e.detail
     try {
       let dataBase64, ext, source, filename
+      if (signing === 'office') {
+        const { ok, body } = await api.changeCreate(doc.code, { editId: gEditId, note, reason, newRev, pin })
+        if (!ok) { fail(body.error || 'ส่งคำขอไม่สำเร็จ'); return }
+        signing = null
+        gEdit = false
+        gEditId = null
+        await afterSubmit(body)
+        return
+      }
       if (signing === 'edit') {
         dataBase64 = bytesToB64(draft.bytes)
         ext = draft.ext
@@ -202,16 +230,20 @@
       signing = null
       pendingUpload = null
       draft = null
-      savedMsg = `ส่งคำขอ ${body.refNo} แล้ว — ${body.newRev} จะมีผลบังคับใช้เมื่อผู้ตรวจสอบและผู้อนุมัติลงนามครบ`
-      await load(ver)
-      await loadChanges()
-      selChange = body.id
-      tab = 'dcr'
-      dispatch('saved')
-      setTimeout(() => { if (savedMsg.includes(body.refNo)) savedMsg = '' }, 8000)
+      await afterSubmit(body)
     } catch (ex) {
       fail('ส่งคำขอไม่สำเร็จ: ' + ex.message)
     }
+  }
+
+  async function afterSubmit(body) {
+    savedMsg = `ส่งคำขอ ${body.refNo} แล้ว — ${body.newRev} จะมีผลบังคับใช้เมื่อผู้ตรวจสอบและผู้อนุมัติลงนามครบ`
+    await load(ver)
+    await loadChanges()
+    selChange = body.id
+    tab = 'dcr'
+    dispatch('saved')
+    setTimeout(() => { if (savedMsg.includes(body.refNo)) savedMsg = '' }, 8000)
   }
 
   function close() {
@@ -271,9 +303,12 @@
         {#if editing}
           <EditActions {editing} {dirty} updateLabel="ส่งขออนุมัติ" on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
         {:else if manage}
-          <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (manage = false)}><Icon name="eye" size={14} /> กลับโหมดอ่าน</button>
+          <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => { manage = false; gEdit = false }}><Icon name="eye" size={14} /> กลับโหมดอ่าน</button>
         {:else if canManage}
-          <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => (manage = true)}><Icon name="pencil" size={14} /> ขอแก้ไขเอกสาร</button>
+          {#if canWebOffice}
+            <button class="mbtn accent inline-flex items-center gap-1.5" on:click={openWebOffice}><Icon name="pencil" size={14} /> แก้ไขเอกสาร</button>
+          {/if}
+          <button class="mbtn {canWebOffice ? 'gh' : 'accent'} inline-flex items-center gap-1.5" on:click={() => (manage = true)}><Icon name="pencil" size={14} /> {canWebOffice ? 'ตัวเลือกอื่น' : 'ขอแก้ไขเอกสาร'}</button>
         {/if}
       {/if}
     </nav>
@@ -310,7 +345,7 @@
         {#if !manage && !editing}
           <div class="read-bar">
             <span class="read-mode inline-flex items-center gap-1.5"><Icon name="eye" size={14} /> โหมดอ่าน</span>
-            <span class="mut">อ่านอย่างเดียว — ต้องการแก้ไขให้กด “ขอแก้ไขเอกสาร” (ผ่านคำขอ DCR และการอนุมัติ)</span>
+            <span class="mut">อ่านอย่างเดียว — ต้องการแก้ไขให้กด “{canWebOffice ? 'แก้ไขเอกสาร' : 'ขอแก้ไขเอกสาร'}” (ผ่านคำขอ DCR และการอนุมัติ)</span>
             <span class="grow"></span>
             {#if doc.type === 'FM'}
               <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'new' })}><Icon name="plus" size={14} /> กรอกแบบฟอร์มใหม่</button>
@@ -318,14 +353,19 @@
             {/if}
             <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติ ({meta.versions.length})</button>
           </div>
-        {:else}
+        {:else if !gEdit}
         <div class="file-tools">
           <div class="ft-head">
             <b>การแก้ไขเอกสาร</b>
-            <span class="mut">แก้บนเว็บหรือแนบไฟล์ → ส่งคำขอ (DCR) → ตรวจสอบ → อนุมัติ → มีผลบังคับใช้เป็น Rev. ใหม่</span>
+            <span class="mut">{canWebOffice ? 'แก้ไขเอกสาร' : 'แก้บนเว็บหรือแนบไฟล์'} → ส่งคำขอ (DCR) → ตรวจสอบ → อนุมัติ → มีผลบังคับใช้เป็น Rev. ใหม่</span>
           </div>
           <div class="ft-actions">
-            {#if canWebEdit}
+            {#if canWebOffice && !gEdit}
+              <button class="mbtn accent inline-flex items-center gap-1.5" on:click={openWebOffice}><Icon name="pencil" size={14} /> แก้ไขเอกสาร</button>
+            {/if}
+            {#if gEdit}
+              <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (gEdit = false)}><Icon name="eye" size={14} /> ดูฉบับใช้งานปัจจุบัน / ตัวเลือกอื่น</button>
+            {:else if canWebEdit}
               <EditActions {editing} {dirty} accent updateLabel="ส่งขออนุมัติ" editLabel="แก้ไขบนเว็บเพื่อขออนุมัติ" on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
             {:else if canChange}
               <span class="ft-hint">ไฟล์ชนิดนี้แก้บนเว็บไม่ได้ — ใช้แนบไฟล์ใหม่แทน</span>
@@ -334,6 +374,7 @@
             {:else if obsolete}
               <span class="ft-hint">เอกสารยกเลิกใช้ — แก้ไขไม่ได้</span>
             {/if}
+            {#if !gEdit}
             {#if canChange}
               <button class="mbtn inline-flex items-center gap-1.5" on:click={() => uploadInput.click()}><Icon name="cloud-upload" size={14} /> แนบไฟล์ขอแก้ไข</button>
             {/if}
@@ -346,12 +387,17 @@
               <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'list' })}>บันทึกที่กรอกแล้ว</button>
             {/if}
             <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติการแก้ไข ({meta.versions.length})</button>
+            {/if}
           </div>
         </div>
-        {#if !editing}<ChangeHistory versions={meta.versions || []} currentVer={ver} controlled onDoc />{/if}
+        {#if !editing && !gEdit}<ChangeHistory versions={meta.versions || []} currentVer={ver} controlled onDoc />{/if}
         {/if}
 
-        {#if !content}
+        {#if gEdit && canWebOffice}
+          <OfficeEdit code={doc.code}
+            on:submit={(e) => { gEditId = e.detail.editId; signing = 'office' }}
+            on:closed={() => (gEdit = false)} />
+        {:else if !content}
           <div class="nopreview">
             <div class="big text-faint flex justify-center"><Icon name="alert-triangle" size={44} stroke={1.5} /></div>
             <p>{err || 'ไม่พบไฟล์ในระบบ'}</p>
@@ -479,7 +525,9 @@
     {#if signing}
       <SignDialog
         title="{doc.code} · {doc.name}"
-        summary={signing === 'edit'
+        summary={signing === 'office'
+          ? 'ฉบับที่แก้ในตัวแก้ไขเอกสาร → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
+          : signing === 'edit'
           ? 'แก้ไขบนเว็บ → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
           : `แนบไฟล์ “${pendingUpload?.name}” → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ`}
         confirmLabel="ส่งขออนุมัติ"

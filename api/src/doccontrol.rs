@@ -220,7 +220,7 @@ async fn current_rev(st: &S, c: &impl deadpool_postgres::GenericClient, code: &s
     }
 }
 
-async fn is_obsolete(c: &impl deadpool_postgres::GenericClient, code: &str) -> bool {
+pub(crate) async fn is_obsolete(c: &impl deadpool_postgres::GenericClient, code: &str) -> bool {
     c.query_opt("SELECT 1 FROM doc_status WHERE doc_code=$1 AND status='obsolete'", &[&code]).await.ok().flatten().is_some()
 }
 
@@ -294,13 +294,27 @@ pub struct ChangeReq {
     reason: Option<String>,
     newRev: Option<String>,
     pin: Option<String>,
+    /// ไฟล์จากรอบแก้ไขบนเว็บ (editsession, ONLYOFFICE) แทน dataBase64
+    editId: Option<i64>,
+}
+
+/// ไฟล์ฉบับร่าง: จากรอบแก้ไขบนเว็บ ถ้าระบุ editId ไม่งั้นจาก dataBase64
+async fn draft_of(st: &S, client: &impl deadpool_postgres::GenericClient, u: &AuthUser, doc: &Value, code: &str, change_id: i64, b: &mut ChangeReq)
+    -> Result<Draft, Response> {
+    match b.editId {
+        Some(eid) => {
+            let (bytes, ext, filename) = crate::editsession::take(st, client, u, eid, code, change_id).await?;
+            Ok(Draft { bytes, ext, filename, source: "edit" })
+        }
+        None => read_draft(doc, b.dataBase64.take(), b.ext.take(), b.filename.take(), b.source.take()),
+    }
 }
 
 /// ส่งคำขอเปลี่ยนแปลงเอกสาร (ผู้จัดทำลงนาม) → รอตรวจสอบ
-pub async fn create(Path(code): Path<String>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<ChangeReq>) -> Response {
+pub async fn create(Path(code): Path<String>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(mut b): Json<ChangeReq>) -> Response {
     let Some(doc) = st.by_code.get(&code).cloned() else { return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร") };
     if u.role == "viewer" { return err(StatusCode::FORBIDDEN, "บัญชีผู้อ่านอย่างเดียวส่งคำขอแก้ไขไม่ได้"); }
-    let reason = b.reason.unwrap_or_default().trim().to_string();
+    let reason = b.reason.take().unwrap_or_default().trim().to_string();
     if reason.is_empty() { return err(StatusCode::BAD_REQUEST, "กรุณาระบุเหตุผลการเปลี่ยนแปลง"); }
     let Ok(client) = st.db.get().await else { return db_err() };
     if is_obsolete(&client, &code).await { return err(StatusCode::CONFLICT, "เอกสารนี้ถูกยกเลิกใช้แล้ว — ต้องนำกลับมาใช้ก่อนจึงจะแก้ไขได้"); }
@@ -308,13 +322,13 @@ pub async fn create(Path(code): Path<String>, State(st): State<S>, Extension(u):
         return err(StatusCode::CONFLICT, &format!("มีคำขอ {} ที่ยังไม่จบอยู่แล้ว — ดำเนินการให้เสร็จหรือยกเลิกก่อน", r.get::<_, String>(0)));
     }
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
-    let draft = match read_draft(&doc, b.dataBase64, b.ext, b.filename, b.source) { Ok(d) => d, Err(r) => return r };
+    let draft = match draft_of(&st, &client, &u, &doc, &code, 0, &mut b).await { Ok(d) => d, Err(r) => return r };
 
     ensure_original(&st, &code).await;
     let base_version: i64 = client.query_one("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=$1", &[&code])
         .await.map(|r| r.get(0)).unwrap_or(0);
     let from_rev = current_rev(&st, &client, &code).await;
-    let new_rev = b.newRev.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| bump_rev(&from_rev));
+    let new_rev = b.newRev.take().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| bump_rev(&from_rev));
     if let Err(r) = validate_rev(&new_rev, &from_rev) { return r; }
     if rev_used(&client, &code, &new_rev).await { return err(StatusCode::BAD_REQUEST, &format!("{new_rev} เคยใช้กับเอกสารนี้แล้ว")); }
 
@@ -327,7 +341,7 @@ pub async fn create(Path(code): Path<String>, State(st): State<S>, Extension(u):
     let stored = match store_draft(&st, &ref_no, 1, &draft.ext, &draft.bytes) { Ok(s) => s, Err(r) => return r };
     let sha = sha256_hex(&draft.bytes);
     let size = draft.bytes.len() as i64;
-    let note = b.note.unwrap_or_default().trim().to_string();
+    let note = b.note.take().unwrap_or_default().trim().to_string();
     let now = now_iso();
     let row = client.query_one(
         &format!("INSERT INTO doc_changes(ref_no,doc_code,status,reason,note,from_rev,new_rev,filename,ext,stored_name,size,sha256,source,base_version,prepared_by,prepared_name,prepared_position,version,created_at,updated_at,closed_at)
@@ -347,6 +361,7 @@ pub async fn create(Path(code): Path<String>, State(st): State<S>, Extension(u):
         }
     };
     add_step(&client, id, "submit", "submit", &u, &reason, &sha).await;
+    if let Some(eid) = b.editId { crate::editsession::finish(&st, &client, eid).await; }
     let _ = eform::audit(&client, &u, "dcr_submit", "doc_change", &id.to_string(), &format!("{ref_no} {code} {from_rev}→{new_rev}")).await;
     detail_resp(&st, &u, id).await
 }
@@ -427,16 +442,16 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
 }
 
 /// ผู้จัดทำแก้ตามที่ถูกตีกลับแล้วส่งใหม่ (แนบไฟล์ใหม่ได้ หรือใช้ไฟล์เดิม)
-pub async fn resubmit(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<ChangeReq>) -> Response {
+pub async fn resubmit(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(mut b): Json<ChangeReq>) -> Response {
     let Ok(client) = st.db.get().await else { return db_err() };
     let Some((ch, stored)) = load_change(&client, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบคำขอเปลี่ยนแปลง") };
     if can_flags(&u, &ch)["resubmit"] != json!(true) { return err(StatusCode::FORBIDDEN, "ส่งใหม่ได้เฉพาะผู้จัดทำ เมื่อคำขอถูกตีกลับ"); }
     let code = ch["docCode"].as_str().unwrap_or("").to_string();
     let Some(doc) = st.by_code.get(&code).cloned() else { return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร") };
-    let reason = b.reason.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ch["reason"].as_str().unwrap_or("").to_string());
-    let note = b.note.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ch["note"].as_str().unwrap_or("").to_string());
+    let reason = b.reason.take().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ch["reason"].as_str().unwrap_or("").to_string());
+    let note = b.note.take().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ch["note"].as_str().unwrap_or("").to_string());
     let from_rev = ch["fromRev"].as_str().unwrap_or("").to_string();
-    let new_rev = b.newRev.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ch["newRev"].as_str().unwrap_or("").to_string());
+    let new_rev = b.newRev.take().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ch["newRev"].as_str().unwrap_or("").to_string());
     if let Err(r) = validate_rev(&new_rev, &from_rev) { return r; }
     if rev_used(&client, &code, &new_rev).await { return err(StatusCode::BAD_REQUEST, &format!("{new_rev} เคยใช้กับเอกสารนี้แล้ว")); }
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
@@ -445,8 +460,8 @@ pub async fn resubmit(Path(id): Path<i64>, State(st): State<S>, Extension(u): Ex
         ch["filename"].as_str().unwrap_or("").to_string(), ch["ext"].as_str().unwrap_or("").to_string(), stored,
         ch["size"].as_i64().unwrap_or(0), ch["sha256"].as_str().unwrap_or("").to_string(), ch["source"].as_str().unwrap_or("").to_string(),
     );
-    if b.dataBase64.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
-        let draft = match read_draft(&doc, b.dataBase64, b.ext, b.filename, b.source) { Ok(d) => d, Err(r) => return r };
+    if b.editId.is_some() || b.dataBase64.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+        let draft = match draft_of(&st, &client, &u, &doc, &code, id, &mut b).await { Ok(d) => d, Err(r) => return r };
         let rounds: i64 = client.query_one("SELECT COUNT(*) FROM doc_change_steps WHERE change_id=$1 AND action IN ('submit','resubmit')", &[&id])
             .await.map(|r| r.get(0)).unwrap_or(1);
         stored_name = match store_draft(&st, ch["refNo"].as_str().unwrap_or("DCR"), rounds + 1, &draft.ext, &draft.bytes) { Ok(s) => s, Err(r) => return r };
@@ -464,6 +479,7 @@ pub async fn resubmit(Path(id): Path<i64>, State(st): State<S>, Extension(u): Ex
     ).await.unwrap_or(0);
     if n == 0 { return err(StatusCode::CONFLICT, "คำขอนี้ถูกดำเนินการไปแล้ว — โหลดหน้าใหม่"); }
     add_step(&client, id, "submit", "resubmit", &u, &reason, &sha).await;
+    if let Some(eid) = b.editId { crate::editsession::finish(&st, &client, eid).await; }
     let _ = eform::audit(&client, &u, "dcr_resubmit", "doc_change", &id.to_string(), ch["refNo"].as_str().unwrap_or("")).await;
     detail_resp(&st, &u, id).await
 }

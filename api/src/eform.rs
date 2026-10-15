@@ -148,7 +148,7 @@ pub(crate) async fn check_pin(c: &impl deadpool_postgres::GenericClient, code: &
 }
 
 /// token สุ่มจาก CSPRNG ของระบบปฏิบัติการ 256 บิต (session, check-in, ชื่อไฟล์)
-fn new_token(_purpose: &str) -> String {
+pub(crate) fn new_token(_purpose: &str) -> String {
     use argon2::password_hash::rand_core::{OsRng, RngCore};
     let mut b = [0u8; 32];
     OsRng.fill_bytes(&mut b);

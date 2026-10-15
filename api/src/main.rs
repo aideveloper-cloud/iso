@@ -20,6 +20,7 @@ mod acks;
 mod audittrail;
 mod capa;
 mod doccontrol;
+mod editsession;
 mod eform;
 mod internalaudit;
 mod mreview;
@@ -186,6 +187,7 @@ async fn init_db(pool: &Pool) {
                 client.batch_execute(internalaudit::SCHEMA).await.expect("สร้างตารางตรวจติดตามภายในไม่สำเร็จ");
                 client.batch_execute(acks::SCHEMA).await.expect("สร้างตารางการรับทราบเอกสารไม่สำเร็จ");
                 client.batch_execute(training::SCHEMA).await.expect("สร้างตาราง training matrix ไม่สำเร็จ");
+                client.batch_execute(editsession::SCHEMA).await.expect("สร้างตารางรอบแก้ไขเอกสารไม่สำเร็จ");
                 return;
             }
             Err(e) => {
@@ -511,7 +513,8 @@ async fn health(State(st): State<S>) -> Json<Value> {
         .is_some();
     let db_ok = st.db.get().await.is_ok();
     let pdf_ok = pdfview::ready().await;
-    Json(json!({ "service": "iso-api (Rust/Axum)", "api": "ok", "db": if db_ok {"ok"} else {"down"}, "converter": if conv {"ok"} else {"down"}, "pdf": if pdf_ok {"ok"} else {"down"} }))
+    let office = editsession::office_health().await;
+    Json(json!({ "service": "iso-api (Rust/Axum)", "api": "ok", "db": if db_ok {"ok"} else {"down"}, "converter": if conv {"ok"} else {"down"}, "pdf": if pdf_ok {"ok"} else {"down"}, "office": office }))
 }
 
 async fn docs_list(State(st): State<S>) -> Json<Value> {
@@ -907,10 +910,12 @@ async fn main() {
     {
         let pool_b = pool.clone();
         let dir = state.docs_root.join("backups");
+        let st_b = state.clone();
         tokio::spawn(async move {
             loop {
                 eform::backup_once(&pool_b, &dir).await;
                 audittrail::db_backup(&dir).await;
+                editsession::sweep(&st_b).await;
                 tokio::time::sleep(Duration::from_secs(86_400)).await;
             }
         });
@@ -995,6 +1000,12 @@ async fn main() {
         .route("/api/forms/stats", get(eform::form_stats))
         .route("/api/forms/places", get(eform::places))
         .route("/api/forms/previous", get(eform::copy_previous))
+        .route("/api/docs/:code/edit", get(editsession::mine).post(editsession::start))
+        .route("/api/edit/:id", get(editsession::status))
+        .route("/api/edit/:id/pdf", get(editsession::pdf))
+        .route("/api/edit/:id/cancel", axum::routing::post(editsession::cancel))
+        .route("/api/public/edit/:token", get(editsession::public_get))
+        .route("/api/public/office/:token", axum::routing::post(editsession::office_callback))
         .route("/api/public/checkin/:token", get(eform::checkin_info))
         .route("/api/public/checkin", axum::routing::post(eform::checkin))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))

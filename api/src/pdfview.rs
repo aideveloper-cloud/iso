@@ -24,7 +24,7 @@ fn gotenberg_url() -> String {
 }
 
 /// คืนไฟล์ PDF ของไฟล์ต้นฉบับ (แปลงใหม่ถ้ายังไม่มีในแคช)
-async fn pdf_bytes(st: &S, abs: &PathBuf, ext: &str, title: &str) -> Result<Vec<u8>, String> {
+pub(crate) async fn pdf_bytes(st: &S, abs: &PathBuf, ext: &str, title: &str) -> Result<Vec<u8>, String> {
     let src = fs::read(abs).map_err(|e| format!("อ่านไฟล์ไม่ได้: {e}"))?;
     let dir = st.docs_root.join("pdfcache");
     // Excel: หนึ่งชีตต่อหนึ่งหน้า (เห็นทั้งตารางเหมือนเปิดใน Excel) — ตามค่าหน้าพิมพ์เดิม ตารางที่กว้างกว่า A4 จะถูกตัดคอลัมน์ข้ามหน้า
@@ -56,7 +56,7 @@ async fn pdf_bytes(st: &S, abs: &PathBuf, ext: &str, title: &str) -> Result<Vec<
     Ok(pdf)
 }
 
-fn pdf_response(pdf: Vec<u8>, name: &str) -> Response {
+pub(crate) fn pdf_response(pdf: Vec<u8>, name: &str) -> Response {
     let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
     Response::builder()
         .header(header::CONTENT_TYPE, "application/pdf")

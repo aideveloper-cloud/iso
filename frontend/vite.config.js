@@ -10,7 +10,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': 'http://127.0.0.1:8085',
+      // ISO_API: ชี้ไป API ทดสอบได้ (ค่าเริ่มต้น API บนเครื่องนี้)
+      '/api': process.env.ISO_API || 'http://127.0.0.1:8085',
       '/converter': {
         target: 'http://127.0.0.1:8081',
         changeOrigin: true,

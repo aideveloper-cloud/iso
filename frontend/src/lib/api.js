@@ -56,6 +56,11 @@ export const api = {
   changeAct: (id, action, comment, pin) => postJson(`/api/changes/${id}/act`, { action, comment, pin }),
   changeResubmit: (id, payload) => postJson(`/api/changes/${id}/resubmit`, payload),
   changeCancel: (id, reason) => postJson(`/api/changes/${id}/cancel`, { reason }),
+  // รอบแก้ไขเอกสารบนเว็บ (ONLYOFFICE) — ดู editsession.rs
+  editMine: (code) => send(`/api/docs/${encodeURIComponent(code)}/edit`).then((r) => r.json()),
+  editStart: (code, changeId) => postJson(`/api/docs/${encodeURIComponent(code)}/edit`, { changeId: changeId || null }),
+  editStatus: (id) => send(`/api/edit/${id}`).then((r) => r.json()),
+  editCancel: (id) => postJson(`/api/edit/${id}/cancel`, {}),
   docObsolete: (code, reason, pin) => postJson(`/api/docs/${encodeURIComponent(code)}/obsolete`, { reason, pin }),
   docReinstate: (code, reason, pin) => postJson(`/api/docs/${encodeURIComponent(code)}/reinstate`, { reason, pin }),
   actions: () => send('/api/actions').then((r) => r.json()),
@@ -145,6 +150,8 @@ export const fileUrl = (code, v, dl) =>
 export const pdfUrl = (code, v) => (`/api/docs/${encodeURIComponent(code)}/pdf?v=${v}`)
 export const ovPdfUrl = (p, v) => (`/api/overview/pdf?path=${encodeURIComponent(p)}${v ? `&v=${v}` : ''}`)
 export const changeFileUrl = (id, dl) => (`/api/changes/${id}/file${dl ? '?dl=1' : ''}`)
+// ?s=<sha> เปลี่ยนทุกครั้งที่บันทึก — กันเบราว์เซอร์ใช้ PDF เก่าจากแคช
+export const editPdfUrl = (id, sha) => (`/api/edit/${id}/pdf?s=${(sha || '').slice(0, 16)}`)
 export const ovFileUrl = (p, dl) =>
   (`/api/overview/file?path=${encodeURIComponent(p)}${dl ? '&dl=1' : ''}`)
 
