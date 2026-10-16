@@ -6,9 +6,11 @@
   import { fmtWhen } from './lib/changeNote.js'
   import Icon from './Icon.svelte'
 
-  export let code
+  export let code = ''
   /** แก้ฉบับร่างของ DCR ที่ถูกตีกลับ (0 = เริ่มจากฉบับใช้งานปัจจุบัน) */
   export let changeId = 0
+  /** ไฟล์ในคลังภาพรวมองค์กร (ไม่อยู่ในทะเบียน) — แทน code */
+  export let ovPath = ''
   export let submitLabel = 'ส่งขออนุมัติ'
   const dispatch = createEventDispatcher()
 
@@ -22,6 +24,8 @@
   let view = 'edit' // edit | pdf
   let busy = false
   let timer
+  let root
+  let full = false // เต็มจอ (Fullscreen API ถ้ามี ไม่งั้นขยายเต็มหน้าต่าง)
   let pdfSrc = '', pdfFor = '', pdfState = 'idle', pdfErr = ''
 
   $: saved = session && session.saves > 0
@@ -29,16 +33,42 @@
   $: if (view === 'pdf' && session && saved && pdfFor !== session.sha256) loadPdf()
 
   onMount(async () => {
+    document.addEventListener('fullscreenchange', onFsChange)
+    window.addEventListener('keydown', onEsc, true)
     window.addEventListener('focus', poll)
     timer = setInterval(() => { if (!document.hidden) poll() }, 4000)
     await open()
   })
   onDestroy(() => {
+    document.removeEventListener('fullscreenchange', onFsChange)
+    window.removeEventListener('keydown', onEsc, true)
+    if (document.fullscreenElement === root) document.exitFullscreen?.().catch(() => {})
     clearInterval(timer)
     window.removeEventListener('focus', poll)
     try { editor?.destroyEditor() } catch (e) { /* ปิดไปแล้ว */ }
     if (pdfSrc) URL.revokeObjectURL(pdfSrc)
   })
+
+  async function toggleFull() {
+    if (!full) {
+      full = true
+      try { await root?.requestFullscreen?.() } catch (e) { /* ใช้แบบขยายเต็มหน้าต่างแทน */ }
+    } else {
+      full = false
+      if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+    }
+  }
+  // กล่องยืนยัน/ลงนามอยู่นอกตัวแก้ไข — ออกจากเต็มจอก่อน ไม่งั้นกล่องถูกบังจนมองไม่เห็น
+  async function submit() {
+    if (full) await toggleFull()
+    dispatch('submit', { editId: session.id })
+  }
+  // กด Esc ออกจากเต็มจอของเบราว์เซอร์แล้ว → กลับขนาดปกติ
+  function onFsChange() { if (!document.fullscreenElement && full) full = false }
+  // แบบขยายเต็มหน้าต่าง (ไม่มี Fullscreen API): Esc ย่อกลับ ไม่ปิดหน้าต่างเอกสาร
+  function onEsc(e) {
+    if (e.key === 'Escape' && full && !document.fullscreenElement) { e.stopPropagation(); full = false }
+  }
 
   /** โหลด api.js ของ ONLYOFFICE ครั้งเดียวต่อหน้า */
   function loadDocsApi(base) {
@@ -59,7 +89,7 @@
     state = 'loading'
     err = ''
     try {
-      const { ok, body } = await api.editStart(code, changeId)
+      const { ok, body } = ovPath ? await api.ovEditStart(ovPath) : await api.editStart(code, changeId)
       if (!ok) throw new Error(body.error || 'เปิดการแก้ไขไม่สำเร็จ')
       session = body.session
       others = body.others || []
@@ -120,7 +150,7 @@
   }
 </script>
 
-<div class="oo">
+<div class="oo" class:full bind:this={root}>
   <div class="oo-bar">
     <div class="oo-title">
       <Icon name="pencil" size={16} />
@@ -141,10 +171,13 @@
       </div>
       <button class="mbtn accent inline-flex items-center gap-1.5" disabled={busy || !canSubmit}
         title={canSubmit ? '' : unsaved ? 'บันทึกการแก้ไขก่อน (Ctrl+S)' : 'ยังไม่มีการแก้ไขที่บันทึกไว้'}
-        on:click={() => dispatch('submit', { editId: session.id })}>
+        on:click={submit}>
         <Icon name="circle-check" size={14} /> {submitLabel}
       </button>
       <button class="mbtn gh" disabled={busy} on:click={discard}>ทิ้งการแก้ไข</button>
+      <button class="mbtn gh inline-flex items-center gap-1.5" title={full ? 'ย่อกลับ (Esc)' : 'ขยายตัวแก้ไขเต็มจอ'} on:click={toggleFull}>
+        <Icon name={full ? 'minimize' : 'maximize'} size={14} /> {full ? 'ย่อ' : 'เต็มจอ'}
+      </button>
     {/if}
   </div>
 
@@ -173,7 +206,9 @@
       {/if}
     </div>
   {/if}
-  <p class="mut oo-hint">กดบันทึก (Ctrl+S) ในตัวแก้ไขแล้วกด “{submitLabel}” — ฉบับปัจจุบันยังใช้งานจนกว่าผู้ตรวจสอบและผู้อนุมัติจะลงนาม</p>
+  {#if !full}
+    <p class="mut oo-hint">กดบันทึก (Ctrl+S) ในตัวแก้ไขแล้วกด “{submitLabel}”{ovPath ? ' — เวอร์ชันเดิมยังเก็บไว้ในประวัติ' : ' — ฉบับปัจจุบันยังใช้งานจนกว่าผู้ตรวจสอบและผู้อนุมัติจะลงนาม'}</p>
+  {/if}
 </div>
 
 <style>
@@ -193,4 +228,8 @@
   .oo-frame.hidden { display: none; }
   .oo-pdf { min-height: 480px; }
   .oo-hint { font-size: 12px; margin: 0 4px; }
+  /* เต็มจอ: ตัวแก้ไขกินพื้นที่ทั้งหมด แถบเครื่องมือของเราอยู่บนสุด */
+  .oo.full { position: fixed; inset: 0; z-index: 1000; background: #f4f6f8; padding: 8px; }
+  .oo.full .oo-frame, .oo.full .oo-pdf { flex: 1; height: auto; min-height: 0; }
+  .oo.full .oo-pdf :global(iframe) { height: 100%; }
 </style>

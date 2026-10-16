@@ -17,7 +17,7 @@ use crate::{acks, doccontrol, eform, err, pct, S};
 fn sha_hex(b: &[u8]) -> String { Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect() }
 
 /// ชนิดไฟล์ที่แปลงเป็น PDF ได้
-pub fn convertible(ext: &str) -> bool { matches!(ext, "docx" | "doc" | "xlsx" | "xls") }
+pub fn convertible(ext: &str) -> bool { matches!(ext, "docx" | "doc" | "xlsx" | "xls" | "pptx" | "ppt") }
 
 fn gotenberg_url() -> String {
     std::env::var("GOTENBERG_URL").unwrap_or_else(|_| "http://127.0.0.1:3030".into())

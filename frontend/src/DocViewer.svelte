@@ -2,6 +2,7 @@
   import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte'
   import { srcLabel, fmtWhen, DCR_STATUS } from './lib/changeNote.js'
   import { api, fileUrl, pdfUrl, bytesToB64 } from './lib/api.js'
+  import { OFFICE_EXTS } from './lib/const.js'
   import DocBody from './DocBody.svelte'
   import SignDialog from './SignDialog.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -60,7 +61,7 @@
   $: canChange = !!meta && isLatest && !openChange && !obsolete && me?.role !== 'viewer'
   $: canWebEdit = canChange && meta?.editable && content && content.kind !== 'download' && content.kind !== 'embed'
   // ตัวแก้ไขบนเว็บ (ONLYOFFICE) แก้ได้เฉพาะ Word/Excel
-  $: canWebOffice = canChange && ['docx', 'xlsx', 'xls'].includes(meta?.ext)
+  $: canWebOffice = canChange && OFFICE_EXTS.includes(meta?.ext)
   $: canObsolete = !obsolete && !openChange && (me?.role === 'approver' || me?.role === 'admin')
   $: canReinstate = obsolete && me?.role === 'admin'
   $: canManage = canChange || canObsolete
@@ -96,7 +97,7 @@
   onDestroy(() => window.removeEventListener('keydown', onKey))
 
   function onKey(e) {
-    if (e.key === 'Escape' && !signing && !confirmAction && !statusAct) close()
+    if (e.key === 'Escape' && !signing && !confirmAction && !statusAct && !gEdit) close()
   }
 
   /** มีรอบแก้ไขค้างอยู่ (เช่น รีเฟรชหน้าระหว่างแก้) → เปิดตัวแก้ไขต่อให้เลย งานที่บันทึกไว้ไม่หาย */
@@ -262,7 +263,8 @@
   async function openAndEdit(v) {
     tab = 'doc'
     await load(v)
-    if (meta?.editable) await startEdit()
+    if (canWebOffice) openWebOffice()
+    else if (meta?.editable) await startEdit()
   }
 
   function openVersion(v) {
@@ -365,7 +367,7 @@
             {/if}
             {#if gEdit}
               <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (gEdit = false)}><Icon name="eye" size={14} /> ดูฉบับใช้งานปัจจุบัน / ตัวเลือกอื่น</button>
-            {:else if canWebEdit}
+            {:else if canWebEdit && !canWebOffice}
               <EditActions {editing} {dirty} accent updateLabel="ส่งขออนุมัติ" editLabel="แก้ไขบนเว็บเพื่อขออนุมัติ" on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
             {:else if canChange}
               <span class="ft-hint">ไฟล์ชนิดนี้แก้บนเว็บไม่ได้ — ใช้แนบไฟล์ใหม่แทน</span>
@@ -453,7 +455,7 @@
               <button class="mbtn gh" on:click={() => openVersion(v.version)}>เปิดดู</button>
             {/if}
             {#if isLatestVer(v) && canChange}
-              {#if meta.editable}
+              {#if meta.editable || canWebOffice}
                 <button class="mbtn accent" on:click={() => openAndEdit(v.version)}>แก้ไขเพื่อขออนุมัติ</button>
               {/if}
               <button class="mbtn" on:click={() => uploadInput.click()}>แนบไฟล์ขอแก้ไข</button>
@@ -482,7 +484,7 @@
                   {/if}
                   {#if isLatestVer(v)}
                     {#if canChange}
-                      {#if meta.editable}
+                      {#if meta.editable || canWebOffice}
                         <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => openAndEdit(v.version)}>
                           <Icon name="pencil" size={14} /> {isSheetExt ? 'แก้ตารางเพื่อขออนุมัติ' : 'แก้ไขเพื่อขออนุมัติ'}
                         </button>

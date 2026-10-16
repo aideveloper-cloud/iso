@@ -16,15 +16,17 @@ export function fileExt(f) {
   return (f.ext || f.path?.split('.').pop() || '').toLowerCase()
 }
 
-/** Word/Excel ที่แก้บนหน้าเว็บได้ (ตรงกับ API editable) */
+/** ชนิดไฟล์ที่แก้ด้วยตัวแก้ไขบนเว็บ (ONLYOFFICE) ได้ — ตรงกับ EDIT_EXTS ใน api/src/editsession.rs */
+export const OFFICE_EXTS = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'pdf']
 export function isWebEditable(e) {
-  return ['docx', 'xls', 'xlsx'].includes((e || '').toLowerCase())
+  return OFFICE_EXTS.includes((e || '').toLowerCase())
 }
 
 export function fileKind(e) {
   if (['xls', 'xlsx'].includes(e)) return { t: 'Excel', c: 'FM', icon: 'file-spreadsheet', label: 'ตาราง Excel' }
   if (['doc', 'docx'].includes(e)) return { t: 'Word', c: 'QP', icon: 'book-open', label: 'เอกสาร Word' }
   if (e === 'pdf') return { t: 'PDF', c: 'WI', icon: 'file-text', label: 'ไฟล์ PDF' }
+  if (['ppt', 'pptx'].includes(e)) return { t: 'PowerPoint', c: 'WI', icon: 'file-text', label: 'งานนำเสนอ PowerPoint' }
   if (['jpg', 'jpeg', 'png'].includes(e)) return { t: 'รูป', c: 'QM', icon: 'image', label: 'รูปภาพ' }
   return { t: e.toUpperCase(), c: '', icon: 'file-text', label: e.toUpperCase() }
 }

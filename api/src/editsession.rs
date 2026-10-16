@@ -41,15 +41,17 @@ CREATE TABLE IF NOT EXISTS edit_sessions(
   saved_at TEXT NOT NULL DEFAULT '',
   expires_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_es_doc ON edit_sessions(doc_code, emp_code) WHERE status='open';
+-- ไฟล์ในคลังภาพรวมองค์กร (ไม่อยู่ในทะเบียน): บันทึกเป็นเวอร์ชันใหม่ได้เลย ไม่ผ่าน DCR
+ALTER TABLE edit_sessions ADD COLUMN IF NOT EXISTS ov_path TEXT NOT NULL DEFAULT '';
 ";
 
 const TTL_HOURS: i64 = 12;
 const MAX_BYTES: usize = 40 * 1024 * 1024;
-const COLS: &str = "id,emp_code,emp_name,doc_code,change_id,ext,filename,stored_name,base_sha,sha256,size,saves,status,created_at,updated_at,saved_at,expires_at";
+const COLS: &str = "id,emp_code,emp_name,doc_code,change_id,ext,filename,stored_name,base_sha,sha256,size,saves,status,created_at,updated_at,saved_at,expires_at,ov_path";
 
 struct Sess {
     id: i64, emp_code: String, doc_code: String, change_id: i64, ext: String, filename: String,
-    stored_name: String, base_sha: String, sha256: String, status: String, expires_at: String, json: Value,
+    stored_name: String, base_sha: String, sha256: String, status: String, expires_at: String, ov_path: String, json: Value,
 }
 
 fn row_sess(r: &tokio_postgres::Row) -> Sess {
@@ -61,11 +63,11 @@ fn row_sess(r: &tokio_postgres::Row) -> Sess {
         "filename": r.get::<_, String>(6), "sha256": sha, "size": r.get::<_, i64>(10), "saves": r.get::<_, i32>(11),
         "changed": sha != base_sha, "status": r.get::<_, String>(12),
         "createdAt": r.get::<_, String>(13), "updatedAt": r.get::<_, String>(14), "savedAt": r.get::<_, String>(15),
-        "expiresAt": r.get::<_, String>(16),
+        "expiresAt": r.get::<_, String>(16), "ovPath": r.get::<_, String>(17),
     });
     Sess {
         id: r.get(0), emp_code: r.get(1), doc_code: r.get(3), change_id: r.get(4), ext: r.get(5), filename: r.get(6),
-        stored_name: r.get(7), base_sha, sha256: sha, status: r.get(12), expires_at: r.get(16), json,
+        stored_name: r.get(7), base_sha, sha256: sha, status: r.get(12), expires_at: r.get(16), ov_path: r.get(17), json,
     }
 }
 
@@ -79,13 +81,22 @@ fn edits_dir(st: &S) -> std::path::PathBuf {
 
 fn expiry() -> String { (chrono::Utc::now() + chrono::Duration::hours(TTL_HOURS)).to_rfc3339() }
 
-/// ไฟล์ Office จริงหรือไม่ — docx/xlsx เป็น zip, doc/xls เป็น OLE (กันไฟล์อื่นถูกส่งมาแทน)
+/// ชนิดไฟล์ที่แก้บนเว็บ (ONLYOFFICE) ได้
+pub(crate) const EDIT_EXTS: [&str; 7] = ["docx", "doc", "xlsx", "xls", "pptx", "ppt", "pdf"];
+
+/// ไฟล์ Office/PDF จริงหรือไม่ — docx/xlsx/pptx เป็น zip, doc/xls/ppt เป็น OLE (กันไฟล์อื่นถูกส่งมาแทน)
 fn looks_like(ext: &str, b: &[u8]) -> bool {
     match ext {
         "docx" | "xlsx" | "xlsm" | "pptx" => b.starts_with(b"PK\x03\x04"),
         "doc" | "xls" | "ppt" => b.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]),
+        "pdf" => b.starts_with(b"%PDF"),
         _ => false,
     }
+}
+
+/// รูปแบบใหม่ที่ ONLYOFFICE บันทึกกลับมาแทนรูปแบบเก่า (.doc → .docx ฯลฯ)
+fn modern_of(ext: &str) -> Option<&'static str> {
+    match ext { "doc" => Some("docx"), "xls" => Some("xlsx"), "ppt" => Some("pptx"), _ => None }
 }
 
 fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -143,45 +154,116 @@ pub async fn start(Path(code): Path<String>, State(st): State<S>, Extension(u): 
     if !st.by_code.contains_key(&code) { return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร"); }
     let change_id = b.changeId.unwrap_or(0);
     let Ok(client) = st.db.get().await else { return db_err() };
+    let src = source_file(&st, &u, &client, &code, change_id);
+    open_session(&st, &u, &client, &code, change_id, "", src).await
+}
+
+/// เปิดรอบแก้ไขต่อ (ถ้ามีของผู้ใช้คนนี้ค้างอยู่) หรือสร้างใหม่จากไฟล์ต้นทาง `src`
+/// `src` ตรวจสิทธิ์ด้วย — เรียกทุกครั้งแม้เปิดต่อ (ระหว่างนี้อาจมีคนส่ง DCR ไปแล้ว หรือ DCR ถูกยกเลิก)
+async fn open_session(
+    st: &S, u: &AuthUser, client: &deadpool_postgres::Object, code: &str, change_id: i64, ov_path: &str,
+    src: impl std::future::Future<Output = Result<(Vec<u8>, String, String), Response>>,
+) -> Response {
     let token = eform::new_token("edit");
     let hash = sha256_hex(token.as_bytes());
     let now = now_iso();
     let exp = expiry();
 
     let existing = client.query_opt(
-        &format!("SELECT {COLS} FROM edit_sessions WHERE doc_code=$1 AND emp_code=$2 AND change_id=$3 AND status='open' ORDER BY id DESC LIMIT 1"),
-        &[&code, &u.emp_code, &change_id],
+        &format!("SELECT {COLS} FROM edit_sessions WHERE doc_code=$1 AND emp_code=$2 AND change_id=$3 AND ov_path=$4 AND status='open' ORDER BY id DESC LIMIT 1"),
+        &[&code, &u.emp_code, &change_id, &ov_path],
     ).await.ok().flatten().map(|r| row_sess(&r));
-    if let Some(s) = existing.filter(|s| edits_dir(&st).join(&s.stored_name).exists()) {
-        // ระหว่างนี้อาจมีคนอื่นส่งคำขอของเอกสารนี้ไปแล้ว หรือ DCR ถูกยกเลิก — ตรวจสิทธิ์อีกรอบก่อนเปิดต่อ
-        if let Err(r) = source_file(&st, &u, &client, &code, change_id).await { return r; }
+    let source = src.await;
+    if let Some(s) = existing.filter(|s| edits_dir(st).join(&s.stored_name).exists()) {
+        if let Err(r) = source { return r; }
         let _ = client.execute("UPDATE edit_sessions SET token_hash=$2,expires_at=$3,updated_at=$4 WHERE id=$1", &[&s.id, &hash, &exp, &now]).await;
-        let Some(s) = load(&client, s.id).await else { return db_err() };
-        let others = others_editing(&client, &code, &u.emp_code).await;
-        return started(&st, &u, &s, &token, others);
+        let Some(s) = load(client, s.id).await else { return db_err() };
+        let others = others_editing(client, code, &u.emp_code).await;
+        return started(st, u, &s, &token, others);
     }
 
-    let (bytes, ext, filename) = match source_file(&st, &u, &client, &code, change_id).await { Ok(x) => x, Err(r) => return r };
-    if !looks_like(&ext, &bytes) { return err(StatusCode::BAD_REQUEST, "แก้ไขบนเว็บได้เฉพาะไฟล์ Word/Excel"); }
+    let (bytes, ext, filename) = match source { Ok(x) => x, Err(r) => return r };
+    if !EDIT_EXTS.contains(&ext.as_str()) || !looks_like(&ext, &bytes) {
+        return err(StatusCode::BAD_REQUEST, "แก้ไขบนเว็บได้เฉพาะไฟล์ Word, Excel, PowerPoint และ PDF");
+    }
     let sha = sha256_hex(&bytes);
     let size = bytes.len() as i64;
     let row = client.query_one(
-        "INSERT INTO edit_sessions(token_hash,emp_code,emp_name,doc_code,change_id,ext,filename,stored_name,base_sha,sha256,size,saves,status,created_at,updated_at,saved_at,expires_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,'',$8,$8,$9,0,'open',$10,$10,'',$11) RETURNING id",
-        &[&hash, &u.emp_code, &u.name, &code, &change_id, &ext, &filename, &sha, &size, &now, &exp],
+        "INSERT INTO edit_sessions(token_hash,emp_code,emp_name,doc_code,change_id,ext,filename,stored_name,base_sha,sha256,size,saves,status,created_at,updated_at,saved_at,expires_at,ov_path)
+         VALUES($1,$2,$3,$4,$5,$6,$7,'',$8,$8,$9,0,'open',$10,$10,'',$11,$12) RETURNING id",
+        &[&hash, &u.emp_code, &u.name, &code, &change_id, &ext, &filename, &sha, &size, &now, &exp, &ov_path],
     ).await;
     let id: i64 = match row { Ok(r) => r.get(0), Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()) };
     let stored = format!("{id}.{ext}");
-    if let Err(e) = write_atomic(&edits_dir(&st).join(&stored), &bytes) {
+    if let Err(e) = write_atomic(&edits_dir(st).join(&stored), &bytes) {
         let _ = client.execute("DELETE FROM edit_sessions WHERE id=$1", &[&id]).await;
         return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("สร้างสำเนาสำหรับแก้ไขไม่ได้: {e}"));
     }
     let _ = client.execute("UPDATE edit_sessions SET stored_name=$2 WHERE id=$1", &[&id, &stored]).await;
-    let _ = eform::audit(&client, &u, "edit_start", "document", &code, &format!("รอบแก้ไข #{id}")).await;
-    let Some(s) = load(&client, id).await else { return db_err() };
-    let others = others_editing(&client, &code, &u.emp_code).await;
-    started(&st, &u, &s, &token, others)
+    let _ = eform::audit(client, u, "edit_start", "document", code, &format!("รอบแก้ไข #{id}")).await;
+    let Some(s) = load(client, id).await else { return db_err() };
+    let others = others_editing(client, code, &u.emp_code).await;
+    started(st, u, &s, &token, others)
 }
+
+#[derive(Deserialize)]
+pub struct OvStartReq { path: Option<String> }
+
+/// POST /api/overview/edit — แก้ไฟล์ภาพรวมองค์กร (ไม่อยู่ในทะเบียน) ด้วยตัวแก้ไขบนเว็บ
+/// บันทึกแล้วกด "บันทึกเป็นเวอร์ชันใหม่" (commit) — ไม่ผ่าน DCR เหมือน /api/overview/save เดิม
+pub async fn start_overview(State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<OvStartReq>) -> Response {
+    let rel = b.path.unwrap_or_default();
+    if u.role == "viewer" { return err(StatusCode::FORBIDDEN, "บัญชีผู้อ่านอย่างเดียวแก้ไขไฟล์ไม่ได้"); }
+    if let Some(code) = crate::find_code_by_path(&st, &rel) {
+        return err(StatusCode::CONFLICT, &format!("{code} เป็นเอกสารควบคุมในทะเบียน — แก้จากหน้าเอกสารในทะเบียน (ผ่าน DCR)"));
+    }
+    let (abs, ext, name) = match crate::resolve_overview_path(&st, &rel) { Ok(x) => x, Err(r) => return r };
+    let code = match crate::overview_doc_code(&st, &rel, &abs, &name, &ext).await { Ok(c) => c, Err(r) => return r };
+    let Ok(client) = st.db.get().await else { return db_err() };
+    let src = async {
+        let (live, vext, filename, _, _) = crate::overview_live_file(&st, &rel, None).await?;
+        let bytes = fs::read(&live).map_err(|_| err(StatusCode::NOT_FOUND, "อ่านไฟล์ไม่ได้"))?;
+        Ok::<_, Response>((bytes, vext.to_lowercase(), filename))
+    };
+    open_session(&st, &u, &client, &code, 0, &rel, src).await
+}
+
+/// GET /api/overview/edit?path= — รอบแก้ไขที่ยังเปิดอยู่ของผู้ใช้กับไฟล์ภาพรวมนี้ (null = ไม่มี)
+pub async fn mine_overview(axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>, State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
+    let rel = q.get("path").cloned().unwrap_or_default();
+    let Ok(client) = st.db.get().await else { return db_err() };
+    let s = client.query_opt(
+        &format!("SELECT {COLS} FROM edit_sessions WHERE ov_path=$1 AND emp_code=$2 AND status='open' ORDER BY id DESC LIMIT 1"),
+        &[&rel, &u.emp_code],
+    ).await.ok().flatten().map(|r| row_sess(&r).json);
+    Json(s.unwrap_or(Value::Null)).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct CommitReq { note: Option<String> }
+
+/// POST /api/edit/:id/commit — ไฟล์ภาพรวม: บันทึกสำเนาที่แก้เป็นเวอร์ชันใหม่ (เวอร์ชันเดิมยังเก็บไว้)
+pub async fn commit(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<CommitReq>) -> Response {
+    let Ok(client) = st.db.get().await else { return db_err() };
+    let Some(s) = load(&client, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบรอบแก้ไข") };
+    if s.ov_path.is_empty() { return err(StatusCode::BAD_REQUEST, "เอกสารควบคุมต้องส่งขออนุมัติ (DCR)"); }
+    if crate::find_code_by_path(&st, &s.ov_path).is_some() {
+        return err(StatusCode::CONFLICT, "ไฟล์นี้ขึ้นทะเบียนเป็นเอกสารควบคุมแล้ว — ต้องส่งคำขอเปลี่ยนแปลง (DCR)");
+    }
+    let (bytes, ext, filename) = match take(&st, &client, &u, id, &s.doc_code, 0).await { Ok(x) => x, Err(r) => return r };
+    let (abs, _, _) = match crate::resolve_overview_path(&st, &s.ov_path) { Ok(x) => x, Err(r) => return r };
+    let note = b.note.unwrap_or_default().trim().to_string();
+    let nv = crate::NewVersion {
+        code: &s.doc_code, filename: &filename, ext: &ext, source: "edit", note: &note,
+        signer_code: &u.emp_code, signer_name: &u.name, signer_role: &u.position,
+        rev: "", effective_date: "", change_id: 0, approved_by: "", approved_at: "",
+    };
+    let (version, v) = match crate::save_new_version(&st, &nv, &bytes, Some(abs.as_path())).await { Ok(x) => x, Err(r) => return r };
+    finish(&st, &client, id).await;
+    let _ = eform::audit(&client, &u, "overview_save", "overview_file", &s.ov_path, &format!("v{version} {filename} (แก้บนเว็บ)")).await;
+    Json(json!({ "ok": true, "latestVersion": version, "version": v })).into_response()
+}
+
 
 fn started(st: &S, u: &AuthUser, s: &Sess, token: &str, others: Value) -> Response {
     let office = office_config(st, u, s, token);
@@ -234,8 +316,8 @@ fn office_config(st: &S, u: &AuthUser, s: &Sess, token: &str) -> Value {
     let (public, internal_api) = (env_url("ONLYOFFICE_URL"), env_url("ISO_INTERNAL_URL"));
     let secret = std::env::var("ONLYOFFICE_JWT_SECRET").unwrap_or_default();
     if public.is_empty() || internal_api.is_empty() || secret.is_empty() { return Value::Null; }
-    let doc_type = if matches!(s.ext.as_str(), "xls" | "xlsx") { "cell" } else { "word" };
-    let title = st.by_code.get(&s.doc_code).map(|d| format!("{} {}", s.doc_code, d["name"].as_str().unwrap_or(""))).unwrap_or_else(|| s.doc_code.clone());
+    let doc_type = match s.ext.as_str() { "xls" | "xlsx" => "cell", "ppt" | "pptx" => "slide", "pdf" => "pdf", _ => "word" };
+    let title = st.by_code.get(&s.doc_code).map(|d| format!("{} {}", s.doc_code, d["name"].as_str().unwrap_or(""))).unwrap_or_else(|| s.filename.clone());
     // key เปลี่ยนเมื่อไฟล์เปลี่ยน — ONLYOFFICE ใช้ key แคชเอกสาร เปิดใหม่หลังบันทึกต้องได้ฉบับล่าสุด
     let key = format!("iso-{}-{}", s.id, &s.sha256[..16]);
     let mut config = json!({
@@ -276,6 +358,12 @@ pub async fn status(Path(id): Path<i64>, State(st): State<S>, Extension(u): Exte
 /// GET /api/edit/:id/pdf — ดูสำเนาทำงานเป็น PDF (แคชตาม SHA ของไฟล์ บันทึกใหม่ = PDF ใหม่)
 pub async fn pdf(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
     let s = match own(&st, &u, id).await { Ok(s) => s, Err(r) => return r };
+    if s.ext == "pdf" {
+        return match fs::read(edits_dir(&st).join(&s.stored_name)) {
+            Ok(b) => pdfview::pdf_response(b, &format!("ร่างแก้ไข - {}", s.filename)),
+            Err(_) => err(StatusCode::NOT_FOUND, "ไม่พบไฟล์ที่แก้ไขในระบบ"),
+        };
+    }
     if !pdfview::convertible(&s.ext) { return err(StatusCode::BAD_REQUEST, "ไฟล์ชนิดนี้แปลงเป็น PDF ไม่ได้"); }
     let title = st.by_code.get(&s.doc_code).map(|d| format!("{} {}", s.doc_code, d["name"].as_str().unwrap_or(""))).unwrap_or_else(|| s.doc_code.clone());
     match pdfview::pdf_bytes(&st, &edits_dir(&st).join(&s.stored_name), &s.ext, title.trim()).await {
@@ -391,11 +479,11 @@ pub async fn office_health() -> &'static str {
     }
 }
 
-/// บันทึกไฟล์ที่แก้เป็นสำเนาทำงานของรอบแก้ไข (ONLYOFFICE ส่ง .xls กลับมาเป็น .xlsx — รับได้ และเปลี่ยนฉบับร่างเป็น .xlsx)
+/// บันทึกไฟล์ที่แก้เป็นสำเนาทำงานของรอบแก้ไข (ONLYOFFICE ส่ง .doc/.xls/.ppt กลับมาเป็น .docx/.xlsx/.pptx — รับได้ และเปลี่ยนชนิดฉบับร่างตาม)
 async fn store_saved(st: &S, s: &Sess, body: &[u8]) -> Result<(), String> {
     if body.is_empty() { return Err("ไฟล์ว่าง".into()); }
     if body.len() > MAX_BYTES { return Err("ไฟล์ใหญ่เกิน 40 MB".into()); }
-    let ext = if s.ext == "xls" && looks_like("xlsx", body) { "xlsx".to_string() } else { s.ext.clone() };
+    let ext = match modern_of(&s.ext) { Some(m) if looks_like(m, body) => m.to_string(), _ => s.ext.clone() };
     if !looks_like(&ext, body) { return Err(format!("ไฟล์ไม่ใช่ .{}", s.ext)); }
     let (stored, filename) = if ext == s.ext {
         (s.stored_name.clone(), s.filename.clone())

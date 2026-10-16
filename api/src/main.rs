@@ -100,7 +100,7 @@ fn ov_doc_code(rel: &str) -> String {
     format!("OV:{:016x}", h.finish())
 }
 
-fn find_code_by_path(st: &S, rel: &str) -> Option<String> {
+pub(crate) fn find_code_by_path(st: &S, rel: &str) -> Option<String> {
     let want = norm_path(rel);
     st.by_code.iter().find_map(|(code, d)| {
         let path = d["path"].as_str().map(norm_path)?;
@@ -591,7 +591,7 @@ async fn preview_kind(st: &S, abs: &PathBuf, ext: &str) -> Value {
     }
 }
 
-fn resolve_overview_path(st: &S, rel: &str) -> Result<(PathBuf, String, String), Response> {
+pub(crate) fn resolve_overview_path(st: &S, rel: &str) -> Result<(PathBuf, String, String), Response> {
     if rel.is_empty() { return Err(err(StatusCode::BAD_REQUEST, "ไม่ระบุไฟล์")); }
     if rel.contains("..") { return Err(err(StatusCode::BAD_REQUEST, "พาธไม่ถูกต้อง")); }
     let abs = st.docs_root.join(rel);
@@ -604,7 +604,7 @@ fn resolve_overview_path(st: &S, rel: &str) -> Result<(PathBuf, String, String),
 }
 
 /// รหัสเอกสารสำหรับพาธภาพรวม: ใช้รหัสในทะเบียนถ้ามี ไม่งั้นใช้ OV:<hash>
-async fn overview_doc_code(st: &S, rel: &str, abs: &PathBuf, name: &str, ext: &str) -> Result<String, Response> {
+pub(crate) async fn overview_doc_code(st: &S, rel: &str, abs: &PathBuf, name: &str, ext: &str) -> Result<String, Response> {
     if let Some(c) = find_code_by_path(st, rel) {
         ensure_original(st, &c).await;
         return Ok(c);
@@ -618,7 +618,7 @@ async fn overview_doc_code(st: &S, rel: &str, abs: &PathBuf, name: &str, ext: &s
 }
 
 /// เลือกไฟล์ล่าสุดในระบบสำหรับพาธภาพรวม (เวอร์ชันใน storage มาก่อน ต้นฉบับบนดิสก์เป็นรอง)
-async fn overview_live_file(st: &S, rel: &str, want: Option<i64>) -> Result<(PathBuf, String, String, Option<String>, Option<i64>), Response> {
+pub(crate) async fn overview_live_file(st: &S, rel: &str, want: Option<i64>) -> Result<(PathBuf, String, String, Option<String>, Option<i64>), Response> {
     let (abs, ext, name) = resolve_overview_path(st, rel)?;
     let code = match find_code_by_path(st, rel) {
         Some(c) => {
@@ -1004,6 +1004,8 @@ async fn main() {
         .route("/api/edit/:id", get(editsession::status))
         .route("/api/edit/:id/pdf", get(editsession::pdf))
         .route("/api/edit/:id/cancel", axum::routing::post(editsession::cancel))
+        .route("/api/edit/:id/commit", axum::routing::post(editsession::commit))
+        .route("/api/overview/edit", get(editsession::mine_overview).post(editsession::start_overview))
         .route("/api/public/edit/:token", get(editsession::public_get))
         .route("/api/public/office/:token", axum::routing::post(editsession::office_callback))
         .route("/api/public/checkin/:token", get(eform::checkin_info))

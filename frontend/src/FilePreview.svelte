@@ -3,13 +3,14 @@
   //   เก็บผู้แก้ไข วันเวลา ชื่อไฟล์ และย้อนดู/ดาวน์โหลดเวอร์ชันเก่าได้
   import { createEventDispatcher, onMount, onDestroy } from 'svelte'
   import { api, ovFileUrl, ovPdfUrl, bytesToB64 } from './lib/api.js'
-  import { fileExt, fileKind } from './lib/const.js'
+  import { fileExt, fileKind, OFFICE_EXTS } from './lib/const.js'
   import { srcLabel, fmtWhen } from './lib/changeNote.js'
   import DocBody from './DocBody.svelte'
   import SignDialog from './SignDialog.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import ChangeHistory from './ChangeHistory.svelte'
   import EditActions from './EditActions.svelte'
+  import OfficeEdit from './OfficeEdit.svelte'
   import Icon from './Icon.svelte'
 
   export let file // { name, path, size? }
@@ -21,7 +22,9 @@
   let ver = null // เวอร์ชันที่กำลังดู (null = ล่าสุด)
   let err = '', loading = true
   let dirty = false, editing = false
-  let signing = null // 'edit' | 'upload' | null
+  let signing = null // 'edit' | 'upload' | 'office' | null
+  let gEdit = false // ตัวแก้ไขบนเว็บ (ONLYOFFICE)
+  let gEditId = null
   let pendingUpload = null
   let uploadInput
   let body // DocBody
@@ -34,7 +37,9 @@
   $: latestVer = versions[0]?.version
   $: isLatest = !ver || ver === latestVer
   $: writer = me && me.role !== 'viewer'
-  $: canEdit = writer && isLatest && content?.editable && (content.kind === 'html' || content.kind === 'sheet')
+  $: canWebOffice = writer && isLatest && OFFICE_EXTS.includes(fileExt(file))
+  // ตัวแก้ไขบนเว็บแบบเดิม — เฉพาะไฟล์ที่ ONLYOFFICE แก้ไม่ได้
+  $: canEdit = !canWebOffice && writer && isLatest && content?.editable && (content.kind === 'html' || content.kind === 'sheet')
   $: shownVer = ver || content?.version || null
   $: dl = (v) => ovFileUrl(file.path, true) + (v ? `&v=${v}` : '')
   $: view = (v) => ovFileUrl(file.path) + (v ? `&v=${v}` : '')
@@ -44,9 +49,15 @@
   function startEdit() { manage = true; editing = true; dirty = false }
   const nextV = () => (latestVer || content?.version || 1) + 1
 
-  onMount(() => { load(); window.addEventListener('keydown', onKey) })
+  onMount(() => { load().then(resumeWebOffice); window.addEventListener('keydown', onKey) })
+  /** มีรอบแก้ไขค้างอยู่ → เปิดตัวแก้ไขต่อให้เลย */
+  async function resumeWebOffice() {
+    if (!canWebOffice) return
+    try { if (await api.ovEditMine(file.path)) openWebOffice() } catch (e) { /* ไม่มีรอบค้าง */ }
+  }
+  function openWebOffice() { tab = 'doc'; manage = true; gEdit = true }
   onDestroy(() => window.removeEventListener('keydown', onKey))
-  function onKey(e) { if (e.key === 'Escape' && !signing && !confirmAction) close() }
+  function onKey(e) { if (e.key === 'Escape' && !signing && !confirmAction && !gEdit) close() }
 
   async function load(v = null) {
     loading = true; err = ''; content = null; dirty = false; editing = false
@@ -79,6 +90,16 @@
   async function doSave(e) {
     const { note, fail } = e.detail
     try {
+      if (signing === 'office') {
+        const { ok, body } = await api.editCommit(gEditId, note)
+        if (!ok) { fail(body.error || 'บันทึกไม่สำเร็จ'); return }
+        signing = null; gEdit = false; gEditId = null
+        savedMsg = `บันทึกการแก้ไขสำเร็จ — เป็นเวอร์ชัน ${body.latestVersion} (เวอร์ชันก่อนหน้ายังเก็บไว้ครบ)`
+        await load()
+        dispatch('saved', body)
+        setTimeout(() => { savedMsg = '' }, 8000)
+        return
+      }
       const payload = signing === 'edit'
         ? { path: file.path, dataBase64: bytesToB64(draft.bytes), note }
         : { path: file.path, dataBase64: pendingUpload.b64, filename: pendingUpload.name, note }
@@ -126,8 +147,11 @@
       {#if !loading && tab === 'doc' && content}
         <a class="mbtn gh inline-flex items-center gap-1.5" href={dl(ver)} download><Icon name="download" size={14} /> ดาวน์โหลด{ver ? ` v${ver}` : ''}</a>
         {#if editing}<EditActions {editing} {dirty} on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
-        {:else if manage}<button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (manage = false)}><Icon name="eye" size={14} /> กลับโหมดอ่าน</button>
-        {:else if writer && isLatest}<button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => (manage = true)}><Icon name="pencil" size={14} /> แก้ไข / อัปโหลด</button>{/if}
+        {:else if manage}<button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => { manage = false; gEdit = false }}><Icon name="eye" size={14} /> กลับโหมดอ่าน</button>
+        {:else if writer && isLatest}
+          {#if canWebOffice}<button class="mbtn accent inline-flex items-center gap-1.5" on:click={openWebOffice}><Icon name="pencil" size={14} /> แก้ไขเอกสาร</button>{/if}
+          <button class="mbtn {canWebOffice ? 'gh' : 'accent'} inline-flex items-center gap-1.5" on:click={() => (manage = true)}><Icon name={canWebOffice ? 'cloud-upload' : 'pencil'} size={14} /> {canWebOffice ? 'อัปโหลดไฟล์ใหม่' : 'แก้ไข / อัปโหลด'}</button>
+        {/if}
       {/if}
     </nav>
     <input bind:this={uploadInput} type="file" class="hidden" on:change={onPickFile} />
@@ -168,7 +192,7 @@
             <span class="grow"></span>
             <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติ ({versions.length})</button>
           </div>
-        {:else}
+        {:else if !gEdit}
         <div class="file-tools">
           <div class="ft-head">
             <b>การแก้ไขไฟล์</b>
@@ -198,14 +222,20 @@
           </div>
         {/if}
 
-        <DocBody bind:this={body} {content} name={file.name} origUrl={view(ver)} embedUrl={view(ver)} downloadUrl={dl(ver)} pdfUrl={ovPdfUrl(file.path, ver)} {editing} bind:dirty />
+        {#if gEdit && canWebOffice}
+          <OfficeEdit ovPath={file.path} submitLabel="บันทึกเป็นเวอร์ชันใหม่"
+            on:submit={(e) => { gEditId = e.detail.editId; signing = 'office' }}
+            on:closed={() => (gEdit = false)} />
+        {:else}
+          <DocBody bind:this={body} {content} name={file.name} origUrl={view(ver)} embedUrl={view(ver)} downloadUrl={dl(ver)} pdfUrl={ovPdfUrl(file.path, ver)} {editing} bind:dirty />
+        {/if}
       {/if}
     </div>
 
     {#if signing}
       <SignDialog
         title={file.name}
-        summary={signing === 'edit'
+        summary={signing === 'office' || signing === 'edit'
           ? `แก้ไขไฟล์บนเว็บ → บันทึกเป็นเวอร์ชัน ${nextV()} (เวอร์ชันเดิมยังเก็บไว้)`
           : `อัปโหลด “${pendingUpload?.name}” → บันทึกเป็นเวอร์ชัน ${nextV()} (เวอร์ชันเดิมยังเก็บไว้)`}
         confirmLabel="บันทึกเป็นเวอร์ชันใหม่"

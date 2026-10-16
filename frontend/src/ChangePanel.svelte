@@ -2,6 +2,7 @@
   // คำขอเปลี่ยนแปลงเอกสาร (DCR) หนึ่งใบ: ฉบับร่าง + ขั้นตอนลงนาม + ปุ่มตรวจสอบ/อนุมัติ/ตีกลับ/ส่งใหม่/ยกเลิก
   import { createEventDispatcher } from 'svelte'
   import { api, changeFileUrl, bytesToB64 } from './lib/api.js'
+  import { OFFICE_EXTS } from './lib/const.js'
   import { DCR_STATUS, dcrStepLabel, noteParts, fmtWhen } from './lib/changeNote.js'
   import DocBody from './DocBody.svelte'
   import SignDialog from './SignDialog.svelte'
@@ -27,7 +28,7 @@
   $: np = noteParts(change)
   $: can = change?.can || {}
   $: lastReturn = (change?.steps || []).filter((s) => s.action === 'return').slice(-1)[0]
-  $: canWebOffice = can.resubmit && ['docx', 'xlsx', 'xls'].includes(change?.ext)
+  $: canWebOffice = can.resubmit && OFFICE_EXTS.includes(change?.ext)
   $: editableDraft = can.resubmit && content && (content.kind === 'html' || content.kind === 'sheet')
   $: if (change?.id) loadContent(change.id, change.sha256)
 
@@ -156,7 +157,7 @@
           <Icon name={gEdit ? 'eye' : 'pencil'} size={14} /> {gEdit ? 'ดูฉบับร่างที่ส่งไว้' : 'แก้ไขฉบับร่าง'}
         </button>
       {/if}
-      {#if editableDraft && !gEdit}
+      {#if editableDraft && !canWebOffice}
         <EditActions {editing} {dirty} updateLabel="ส่งใหม่เพื่อตรวจสอบ" editLabel="แก้ไขฉบับร่างบนเว็บ" on:cancel={() => { editing = false; dirty = false; loadedKey = ''; loadContent(change.id, change.sha256) }} on:start={() => { editing = true; dirty = false }} on:update={startResubmitFromEdit} />
       {/if}
       <button class="mbtn inline-flex items-center gap-1.5" on:click={() => uploadInput.click()}><Icon name="cloud-upload" size={14} /> แนบไฟล์ใหม่</button>
