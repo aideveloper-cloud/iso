@@ -443,6 +443,77 @@ async fn system_records(st: &S, c: &impl deadpool_postgres::GenericClient, meeti
                 if x["reviewOverdue"] == json!(true) { " (เลยกำหนด)" } else { "" }), evs));
     }
     out.push(("risks".into(), risks));
+
+    // c5) ผลการติดตามและการวัด — สถานะการสอบเทียบเครื่องมือวัด (7.1.5): ภาพรวม + เครื่องที่เลยกำหนด/ไม่ผ่าน/หยุดใช้งาน
+    let mut measurement = vec![];
+    let eq = crate::calibration::active(c).await;
+    if !eq.is_empty() {
+        let fails = crate::calibration::recent_fails(c, &since).await;
+        let overdue = eq.iter().filter(|e| e["overdue"] == json!(true)).count();
+        let out_of_service = eq.iter().filter(|e| e["status"] == json!("out_of_service")).count();
+        let soon = eq.iter().filter(|e| e["status"] == json!("in_use") && e["dueState"] == json!("soon")).count();
+        measurement.push(rec("SYS-CALIBRATION".into(), format!("สถานะการสอบเทียบเครื่องมือวัด {} เครื่อง", eq.len()), String::new(),
+            if overdue > 0 { "critical" } else if !fails.is_empty() || out_of_service > 0 { "attention" } else { "good" },
+            format!("ใช้งาน {} · หยุดใช้งาน {out_of_service} · ใช้งานแต่เลยกำหนด {overdue} · ครบกำหนดใน 7 วัน {soon} · ผลไม่ผ่านในรอบ 12 เดือน {}",
+                eq.iter().filter(|e| e["status"] == json!("in_use")).count(), fails.len()),
+            vec![ev("CALIBRATION", "เมนู เครื่องมือวัดและสอบเทียบ")]));
+        for e in eq.iter().filter(|e| e["overdue"] == json!(true) || e["pendingImpact"].as_i64().unwrap_or(0) > 0) {
+            let code = s(e, "code");
+            measurement.push(rec(format!("SYS-{code}"), format!("{code} {}", s(e, "name")), s(e, "ownerName"),
+                if e["overdue"] == json!(true) { "critical" } else { "attention" },
+                format!("{}กำหนดสอบเทียบ {} · สถานะ {}", if e["pendingImpact"].as_i64().unwrap_or(0) > 0 { "ค้างประเมินผลกระทบผลสอบเทียบไม่ผ่าน · " } else { "" },
+                    s(e, "nextDue"), if e["status"] == json!("in_use") { "ใช้งาน" } else { "หยุดใช้งาน" }), vec![ev(&code, "ทะเบียนเครื่องมือวัด")]));
+        }
+        for f in &fails {
+            let code = s(f, "code");
+            let impact = match s(f, "impactResult").as_str() { "affected" => "กระทบผลการวัด", "none" => "ไม่กระทบผลการวัด", _ => "ยังไม่ประเมินผลกระทบ" };
+            let mut evs = vec![ev(&code, "ผลสอบเทียบ")];
+            if !s(f, "carRef").is_empty() { evs.push(ev(&s(f, "carRef"), "CAR จากผลสอบเทียบไม่ผ่าน")); }
+            measurement.push(rec(format!("SYS-{code}-{}", s(f, "calDate")), format!("ผลสอบเทียบไม่ผ่าน {code} {} ({})", s(f, "name"), s(f, "calDate")), s(f, "ownerName"),
+                if s(f, "impactResult") == "affected" && s(f, "carRef").is_empty() { "critical" } else { "attention" },
+                format!("{impact}{}", if s(f, "carRef").is_empty() { String::new() } else { format!(" · {}", s(f, "carRef")) }), evs));
+        }
+    }
+    out.push(("measurement".into(), measurement));
+
+    // c7) สมรรถนะของผู้ให้บริการภายนอก (8.4): ภาพรวม + ผลประเมินล่าสุดของผู้ขายที่ประเมินในรอบ 12 เดือน หรือมีประเด็น
+    let mut sup_recs = vec![];
+    let sups = crate::suppliers::all(c).await;
+    if !sups.is_empty() {
+        let evals = crate::suppliers::evals_since(c, &since).await;
+        let count = |st: &str| sups.iter().filter(|p| p["status"] == json!(st)).count();
+        let avg = if evals.is_empty() { 0 } else { evals.iter().map(|v| v["score"].as_i64().unwrap_or(0)).sum::<i64>() / evals.len() as i64 };
+        let late = sups.iter().filter(|p| p["evalOverdue"] == json!(true)).count();
+        let poor = evals.iter().filter(|v| v["poor"] == json!(true)).count();
+        sup_recs.push(rec("SYS-SUPPLIERS".into(), format!("ทะเบียนผู้ขาย {} ราย", sups.len()), String::new(),
+            if late > 0 || poor > 0 { "attention" } else { "good" },
+            format!("อนุมัติ {} · มีเงื่อนไข {} · ระงับ {} · ประเมินในรอบ 12 เดือน {} ครั้ง (เฉลี่ย {avg}%) · ผลต่ำ {poor} · เลยกำหนดประเมิน {late} ราย",
+                count("approved"), count("conditional"), count("blocked"), evals.len()),
+            vec![ev("SUPPLIERS", "เมนู ผู้ขายและการประเมิน")]));
+        for p in &sups {
+            let code = s(p, "code");
+            let latest = evals.iter().find(|v| v["supplierId"] == p["id"]);
+            let issue = p["evalOverdue"] == json!(true) || p["status"] != json!("approved") || p["neverEvaluated"] == json!(true);
+            if latest.is_none() && !issue { continue; }
+            let status = match latest {
+                Some(v) if v["poor"] == json!(true) && s(v, "carRef").is_empty() => "critical",
+                Some(v) if v["poor"] == json!(true) => "attention",
+                _ if issue => "attention",
+                _ => "good",
+            };
+            let mut evs = vec![ev(&code, "ทะเบียนผู้ขาย")];
+            let mut note = format!("สถานะ{}", crate::suppliers::status_th(&s(p, "status")));
+            if let Some(v) = latest {
+                note.push_str(&format!(" · ประเมินล่าสุด {} ({}) คุณภาพ {} ส่งมอบ {} ราคา {} บริการ {} = {}% เกรด {}", s(v, "refNo"), s(v, "period"),
+                    v["quality"], v["delivery"], v["price"], v["service"], v["score"], s(v, "grade")));
+                evs.push(ev(&s(v, "refNo"), "ผลประเมินผู้ขาย"));
+                if !s(v, "carRef").is_empty() { evs.push(ev(&s(v, "carRef"), "CAR จากผลประเมินต่ำ")); }
+            } else if p["neverEvaluated"] == json!(true) { note.push_str(" · ยังไม่มีผลประเมินในระบบ"); }
+            if !s(p, "nextEval").is_empty() { note.push_str(&format!(" · ประเมินครั้งถัดไป {}{}", s(p, "nextEval"), if p["evalOverdue"] == json!(true) { " (เลยกำหนด)" } else { "" })); }
+            sup_recs.push(rec(format!("SYS-{code}"), format!("{code} {}", s(p, "name")), s(p, "ownerName"), status, note, evs));
+        }
+    }
+    out.push(("suppliers".into(), sup_recs));
     out
 }
 

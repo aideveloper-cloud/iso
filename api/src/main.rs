@@ -18,6 +18,7 @@ use tokio_postgres::NoTls;
 
 mod acks;
 mod audittrail;
+mod calibration;
 mod capa;
 mod doccontrol;
 mod editsession;
@@ -29,6 +30,7 @@ mod notify;
 mod pdfview;
 mod readiness;
 mod risks;
+mod suppliers;
 mod training;
 
 pub(crate) struct AppState {
@@ -193,6 +195,8 @@ async fn init_db(pool: &Pool) {
                 client.batch_execute(editsession::SCHEMA).await.expect("สร้างตารางรอบแก้ไขเอกสารไม่สำเร็จ");
                 client.batch_execute(kpi::SCHEMA).await.expect("สร้างตารางวัตถุประสงค์คุณภาพไม่สำเร็จ");
                 client.batch_execute(risks::SCHEMA).await.expect("สร้างตารางทะเบียนความเสี่ยงไม่สำเร็จ");
+                client.batch_execute(calibration::SCHEMA).await.expect("สร้างตารางเครื่องมือวัดและการสอบเทียบไม่สำเร็จ");
+                client.batch_execute(suppliers::SCHEMA).await.expect("สร้างตารางผู้ขายและการประเมินไม่สำเร็จ");
                 client.batch_execute(notify::SCHEMA).await.expect("ปรับตารางการแจ้งเตือนไม่สำเร็จ");
                 return;
             }
@@ -971,6 +975,17 @@ async fn main() {
         .route("/api/risks/:id/review", axum::routing::post(risks::review))
         .route("/api/risks/:id/act", axum::routing::post(risks::act))
         .route("/api/risks/:id/par", axum::routing::post(risks::raise_par))
+        .route("/api/equipment", get(calibration::list).post(calibration::create))
+        .route("/api/equipment/:id", get(calibration::get).put(calibration::update))
+        .route("/api/equipment/:id/calibrations", axum::routing::post(calibration::calibrate))
+        .route("/api/equipment/:id/calibrations/:cid/impact", axum::routing::post(calibration::impact))
+        .route("/api/equipment/:id/calibrations/:cid/car", axum::routing::post(calibration::raise_car))
+        .route("/api/equipment/:id/act", axum::routing::post(calibration::act))
+        .route("/api/suppliers", get(suppliers::list).post(suppliers::create))
+        .route("/api/suppliers/:id", get(suppliers::get).put(suppliers::update))
+        .route("/api/suppliers/:id/evaluations", axum::routing::post(suppliers::evaluate))
+        .route("/api/suppliers/:id/evaluations/:vid/car", axum::routing::post(suppliers::raise_car))
+        .route("/api/suppliers/:id/status", axum::routing::post(suppliers::set_status))
         .route("/api/notify", get(notify::list))
         .route("/api/notify/settings", axum::routing::put(notify::settings))
         .route("/api/notify/test", axum::routing::post(notify::test))

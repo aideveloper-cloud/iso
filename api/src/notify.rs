@@ -1,9 +1,10 @@
 // งานของฉัน / การแจ้งเตือน — รวมทุกงานที่รอผู้ใช้คนนี้จากทุกโมดูล (คำนวณสดจากข้อมูลจริง ไม่มีคิวแจ้งเตือนแยก)
 //   DCR รอตรวจ/อนุมัติ · แบบฟอร์มรออนุมัติ · เอกสารที่ต้องรับทราบ · CAR/DAR/PAR ที่รับผิดชอบ/รอทวนสอบ
 //   · งานจากการทบทวนฝ่ายบริหาร · การตรวจติดตามที่เป็นหัวหน้าผู้ตรวจ · ผล KPI ที่ต้องบันทึก · ความเสี่ยงที่ถึงกำหนดทบทวน
+//   · เครื่องมือวัดที่ถึงกำหนดสอบเทียบ/ค้างประเมินผลกระทบ · ผู้ขายที่ถึงกำหนดประเมินซ้ำ/ผลประเมินต่ำที่ยังไม่มี CAR
 //   อีเมลสรุปงานรายวัน (เลือกรับเอง) ส่งเมื่อตั้งค่า SMTP_HOST — ไม่ตั้ง = ใช้เฉพาะในระบบ
 use crate::eform::{self, AuthUser};
-use crate::{capa, err, kpi, risks, S};
+use crate::{calibration, capa, err, kpi, risks, suppliers, S};
 use axum::{
     extract::{Extension, State},
     http::StatusCode,
@@ -118,6 +119,35 @@ pub async fn items(st: &S, u: &AuthUser) -> Vec<Value> {
         let lvl = urgency(&due, &today);
         if lvl != "todo" {
             out.push(item("risk", "risk", &s(&r, "refNo"), &format!("ทบทวน{}: {}", if r["kind"] == json!("opportunity") { "โอกาส" } else { "ความเสี่ยง" }, s(&r, "title")), format!("ระดับ{}", risks::level_th(&s(&r, "level"))), &due, lvl));
+        }
+    }
+    // เครื่องมือวัด (ผู้รับผิดชอบ): ถึงกำหนดสอบเทียบภายใน 7 วัน/เลยกำหนด (เฉพาะที่ใช้งาน) · ยังไม่เคยสอบเทียบ · ผลไม่ผ่านที่ค้างประเมินผลกระทบ
+    for e in calibration::active(&c).await {
+        if s(&e, "ownerCode") != me { continue; }
+        let (code, name, due) = (s(&e, "code"), s(&e, "name"), s(&e, "nextDue"));
+        if e["pendingImpact"].as_i64().unwrap_or(0) > 0 {
+            out.push(item("cal", "cal", &code, &format!("ประเมินผลกระทบผลสอบเทียบไม่ผ่าน: {code} {name}"), "ทบทวนผลการวัดที่ผ่านมาตั้งแต่สอบเทียบผ่านครั้งก่อน".into(), "", "overdue"));
+        } else if e["neverCalibrated"] == json!(true) {
+            out.push(item("cal", "cal", &code, &format!("สอบเทียบก่อนใช้งาน: {code} {name}"), s(&e, "location"), "", "todo"));
+        } else if e["status"] == json!("in_use") {
+            let lvl = urgency(&due, &today);
+            if lvl != "todo" { out.push(item("cal", "cal", &code, &format!("สอบเทียบ: {code} {name}"), s(&e, "location"), &due, lvl)); }
+        }
+        if e["affectedNoCar"].as_i64().unwrap_or(0) > 0 {
+            out.push(item("cal", "cal", &code, &format!("ผลสอบเทียบไม่ผ่านกระทบผลการวัด ยังไม่เปิด CAR: {code} {name}"), String::new(), "", "todo"));
+        }
+    }
+    // ผู้ขาย (ผู้รับผิดชอบประเมิน): ถึงกำหนดประเมินซ้ำภายใน 7 วัน/เลยกำหนด · ผลประเมินต่ำที่ยังไม่เปิด CAR
+    for p in suppliers::all(&c).await {
+        if s(&p, "ownerCode") != me || p["status"] == json!("blocked") { continue; }
+        let (code, name, due) = (s(&p, "code"), s(&p, "name"), s(&p, "nextEval"));
+        let lvl = urgency(&due, &today);
+        if lvl != "todo" {
+            let what = if p["neverEvaluated"] == json!(true) { "ประเมินผู้ขายครั้งแรก" } else { "ประเมินผู้ขายซ้ำ" };
+            out.push(item("sup", "sup", &code, &format!("{what}: {code} {name}"), format!("สถานะ{}", suppliers::status_th(&s(&p, "status"))), &due, lvl));
+        }
+        if p["poorNoCar"].as_i64().unwrap_or(0) > 0 {
+            out.push(item("sup", "sup", &code, &format!("ผลประเมินผู้ขายต่ำ ยังไม่เปิด CAR: {code} {name}"), format!("เกรดล่าสุด {}", s(&p, "lastGrade")), "", "todo"));
         }
     }
 

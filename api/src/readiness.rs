@@ -276,6 +276,50 @@ pub async fn evaluate(st: &S) -> Value {
             if overdue.is_empty() { "ไม่มีรายการเลยกำหนดทบทวน".into() } else { format!("เลยกำหนดทบทวน {} รายการ{}", overdue.len(), if high_overdue { " (มีระดับสูง)" } else { "" }) }, overdue);
     }
 
+    // ---------- เครื่องมือวัดและการสอบเทียบ (7.1.5) ----------
+    if let Some(c) = &client {
+        let eq = crate::calibration::active(c).await;
+        let codes = |f: &dyn Fn(&Value) -> bool| -> Vec<String> { eq.iter().filter(|e| f(e)).filter_map(|e| e["code"].as_str().map(String::from)).collect() };
+        let in_use = eq.iter().filter(|e| e["status"] == json!("in_use")).count();
+        let weak = codes(&|e| e["gaps"].as_array().map(|g| !g.is_empty()).unwrap_or(false));
+        cs.check("cal-register", "มีทะเบียนเครื่องมือวัดพร้อมช่วงวัด/ความแม่นยำและผู้รับผิดชอบ", "เครื่องมือวัด", "7.1.5", !eq.is_empty() && weak.is_empty(), false,
+            if eq.is_empty() { "ยังไม่มีทะเบียนเครื่องมือวัดในระบบ (เมนู เครื่องมือวัดและสอบเทียบ) — ข้อ 7.1.5 ต้องเก็บหลักฐานการสอบเทียบ".into() }
+            else if weak.is_empty() { format!("{} เครื่อง (ใช้งาน {in_use})", eq.len()) }
+            else { format!("{} เครื่อง · ข้อมูลไม่ครบ {} เครื่อง", eq.len(), weak.len()) }, weak);
+        let overdue = codes(&|e| e["overdue"] == json!(true));
+        cs.check("cal-due", "เครื่องมือที่ใช้งานอยู่สอบเทียบไม่เลยกำหนด", "เครื่องมือวัด", "7.1.5.2", overdue.is_empty(), !overdue.is_empty(),
+            if overdue.is_empty() { format!("ไม่มีเครื่องมือที่ใช้งานเลยกำหนดสอบเทียบ · ไม่เคยสอบเทียบ {} เครื่อง (หยุดใช้งานไว้)", codes(&|e| e["neverCalibrated"] == json!(true)).len()) }
+            else { format!("เลยกำหนดสอบเทียบแต่ยังอยู่ในสถานะใช้งาน {} เครื่อง — ต้องหยุดใช้หรือสอบเทียบทันที", overdue.len()) }, overdue);
+        let pending = codes(&|e| e["pendingImpact"].as_i64().unwrap_or(0) > 0);
+        let no_car = codes(&|e| e["affectedNoCar"].as_i64().unwrap_or(0) > 0);
+        let mut ev = pending.clone();
+        ev.extend(no_car.iter().filter(|x| !pending.contains(x)).cloned());
+        cs.check("cal-impact", "ผลสอบเทียบไม่ผ่านมีการประเมินผลกระทบต่อผลการวัดที่ผ่านมา", "เครื่องมือวัด", "7.1.5.2", ev.is_empty(), false,
+            if ev.is_empty() { "ไม่มีผลสอบเทียบไม่ผ่านที่ค้างประเมินผลกระทบ".into() }
+            else { format!("ค้างประเมินผลกระทบ {} เครื่อง · กระทบผลการวัดแต่ยังไม่เปิด CAR {} เครื่อง", pending.len(), no_car.len()) }, ev);
+    }
+
+    // ---------- ผู้ให้บริการภายนอก (8.4) ----------
+    if let Some(c) = &client {
+        let sups = crate::suppliers::all(c).await;
+        let codes = |f: &dyn Fn(&Value) -> bool| -> Vec<String> { sups.iter().filter(|p| f(p)).filter_map(|p| p["code"].as_str().map(String::from)).collect() };
+        let approved = sups.iter().filter(|p| p["status"] == json!("approved")).count();
+        let cond = sups.iter().filter(|p| p["status"] == json!("conditional")).count();
+        cs.check("sup-list", "มีทะเบียนผู้ขายที่อนุมัติ (Approved supplier list)", "ผู้ขาย", "8.4.1", approved > 0, false,
+            if sups.is_empty() { "ยังไม่มีทะเบียนผู้ขายในระบบ (เมนู ผู้ขายและการประเมิน)".into() }
+            else { format!("อนุมัติ {approved} · มีเงื่อนไข {cond} · ระงับ {}", sups.len() - approved - cond) }, vec![]);
+        let late = codes(&|p| p["evalOverdue"] == json!(true));
+        let never = codes(&|p| p["status"] == json!("approved") && p["neverEvaluated"] == json!(true));
+        let mut ev = late.clone();
+        ev.extend(never.iter().filter(|x| !late.contains(x)).cloned());
+        cs.check("sup-eval", "ประเมินผู้ขายตามกำหนด และมีผลประเมินเป็นหลักฐาน", "ผู้ขาย", "8.4.1", ev.is_empty(), false,
+            if ev.is_empty() { "ไม่มีผู้ขายที่เลยกำหนดประเมิน".into() }
+            else { format!("เลยกำหนดประเมิน {} ราย · อนุมัติโดยยังไม่มีผลประเมินในระบบ {} ราย", late.len(), never.len()) }, ev);
+        let poor = codes(&|p| p["poorNoCar"].as_i64().unwrap_or(0) > 0);
+        cs.check("sup-car", "ผลประเมินผู้ขายต่ำมีการแก้ไข (CAR)", "ผู้ขาย", "8.4.2", poor.is_empty(), false,
+            if poor.is_empty() { "ไม่มีผลประเมินต่ำที่ค้างโดยไม่มีการแก้ไข".into() } else { format!("{} รายมีผลประเมินต่ำแต่ยังไม่เปิด CAR", poor.len()) }, poor);
+    }
+
     // ---------- หลักฐานตามข้อกำหนด ----------
     let catalog: Vec<Value> = st.clauses["clauses"].as_array().cloned().unwrap_or_default();
     let mut clause_out = vec![];

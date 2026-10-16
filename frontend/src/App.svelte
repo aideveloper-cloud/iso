@@ -15,6 +15,8 @@
   import Users from './Users.svelte'
   import Kpi from './Kpi.svelte'
   import Risks from './Risks.svelte'
+  import Calibration from './Calibration.svelte'
+  import Suppliers from './Suppliers.svelte'
   import Inbox from './Inbox.svelte'
   import AuditTrail from './AuditTrail.svelte'
   import Forms from './Forms.svelte'
@@ -25,7 +27,7 @@
   import FilePreview from './FilePreview.svelte'
   import Icon from './Icon.svelte'
 
-  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm', 'kpi', 'risk']
+  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm', 'kpi', 'risk', 'cal', 'sup']
   let tab = 'dash'
   let docs = [], overview = []
   let openCode = null
@@ -44,7 +46,7 @@
   let pending = 0
   let checkinToken = ''
   let formLaunch = null
-  let focus = { kpi: '', risk: '' } // เปิดรายการเฉพาะเมื่อมาจากงานของฉัน/เตรียม Audit
+  let focus = { kpi: '', risk: '', cal: '', sup: '' } // เปิดรายการเฉพาะเมื่อมาจากงานของฉัน/เตรียม Audit
   let inboxRefresh = 0
 
   const NAV = [
@@ -63,6 +65,8 @@
       ['ia', 'list-checks', 'ตรวจติดตามภายใน'],
       ['risk', 'shield-alert', 'ความเสี่ยงและโอกาส'],
       ['kpi', 'target', 'วัตถุประสงค์คุณภาพ (KPI)'],
+      ['cal', 'gauge', 'เครื่องมือวัดและสอบเทียบ'],
+      ['sup', 'truck', 'ผู้ขายและการประเมิน'],
       ['mr', 'building', 'ทบทวนฝ่ายบริหาร'],
       ['audit', 'list-checks', 'เตรียม Audit'],
     ] },
@@ -135,7 +139,7 @@
   function onGoto(e) {
     const d = e.detail || {}
     setJump({ type: d.type || '', dept: d.dept || '', unreg: !!d.unreg, section: d.section || '' })
-    if (d.ref && (d.tab === 'kpi' || d.tab === 'risk')) focus = { ...focus, [d.tab]: d.ref }
+    if (d.ref && ['kpi', 'risk', 'cal', 'sup'].includes(d.tab)) focus = { ...focus, [d.tab]: d.ref }
     goTab(d.tab)
   }
   /** คลิกงานในกระดิ่ง: ไปหน้าที่เกี่ยวข้อง (KPI/ความเสี่ยงเปิดรายการนั้นทันที) — เปลี่ยน key เพื่อโหลดหน้าใหม่แม้อยู่หน้าเดิม */
@@ -221,7 +225,7 @@
       {#each nav as g}
         <div class="navgroup-label">{g.group}</div>
         {#each g.items as [k, ic, label]}
-          <button class={tab === k ? 'active' : ''} title={label} on:click={() => { focus = { kpi: '', risk: '' }; goTab(k) }}>
+          <button class={tab === k ? 'active' : ''} title={label} on:click={() => { focus = { kpi: '', risk: '', cal: '', sup: '' }; goTab(k) }}>
             <span class="ic"><Icon name={ic} size={18} /></span><span class="lb">{label}{#if k === 'forms' && pending} ({pending}){/if}{#if k === 'dcr' && pendingDocs} ({pendingDocs}){/if}{#if k === 'ack' && pendingAcks} ({pendingAcks}){/if}</span>
           </button>
         {/each}
@@ -325,6 +329,10 @@
         {#key tabKey}<Kpi {me} focus={focus.kpi} on:goto={onGoto} />{/key}
       {:else if tab === 'risk'}
         {#key tabKey}<Risks {me} focus={focus.risk} on:goto={onGoto} />{/key}
+      {:else if tab === 'cal'}
+        {#key tabKey}<Calibration {me} focus={focus.cal} on:goto={onGoto} />{/key}
+      {:else if tab === 'sup'}
+        {#key tabKey}<Suppliers {me} focus={focus.sup} on:goto={onGoto} />{/key}
       {:else if tab === 'act'}
         <Actions {docs} {me} />
       {:else if tab === 'audit'}

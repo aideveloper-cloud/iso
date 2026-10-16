@@ -6,7 +6,7 @@
   export let refresh = 0
   const dispatch = createEventDispatcher()
 
-  const KIND = { dcr: 'DCR', form: 'แบบฟอร์ม', ack: 'รับทราบ', capa: 'CAR/PAR', mr: 'ทบทวนฯ', ia: 'ตรวจติดตาม', kpi: 'KPI', risk: 'ความเสี่ยง' }
+  const KIND = { dcr: 'DCR', form: 'แบบฟอร์ม', ack: 'รับทราบ', capa: 'CAR/PAR', mr: 'ทบทวนฯ', ia: 'ตรวจติดตาม', kpi: 'KPI', risk: 'ความเสี่ยง', cal: 'สอบเทียบ', sup: 'ผู้ขาย' }
   const LEVEL = { overdue: 'เลยกำหนด', soon: 'ใกล้ครบกำหนด', todo: 'รอดำเนินการ' }
 
   let open = false, data = null, err = ''

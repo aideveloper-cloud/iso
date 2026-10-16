@@ -124,6 +124,23 @@ export const api = {
   riskReview: (id, payload) => postJson(`/api/risks/${id}/review`, payload),
   riskAct: (id, version, action, reason) => postJson(`/api/risks/${id}/act`, { version, action, reason }),
   riskPar: (id) => postJson(`/api/risks/${id}/par`, {}),
+  // เครื่องมือวัดและการสอบเทียบ (7.1.5)
+  equipmentList: () => send('/api/equipment').then((r) => r.json()),
+  equipment: (id) => send(`/api/equipment/${id}`).then((r) => r.json()),
+  equipmentCreate: (payload) => postJson('/api/equipment', payload),
+  equipmentUpdate: (id, version, fields) => postJson(`/api/equipment/${id}`, { version, fields }, 'PUT'),
+  equipmentCalibrate: (id, payload) => postJson(`/api/equipment/${id}/calibrations`, payload),
+  equipmentImpact: (id, cid, payload) => postJson(`/api/equipment/${id}/calibrations/${cid}/impact`, payload),
+  equipmentCar: (id, cid) => postJson(`/api/equipment/${id}/calibrations/${cid}/car`, {}),
+  equipmentAct: (id, version, action, reason) => postJson(`/api/equipment/${id}/act`, { version, action, reason }),
+  // ผู้ขายและการประเมิน (8.4)
+  suppliers: () => send('/api/suppliers').then((r) => r.json()),
+  supplier: (id) => send(`/api/suppliers/${id}`).then((r) => r.json()),
+  supplierCreate: (payload) => postJson('/api/suppliers', payload),
+  supplierUpdate: (id, version, fields) => postJson(`/api/suppliers/${id}`, { version, fields }, 'PUT'),
+  supplierEvaluate: (id, payload) => postJson(`/api/suppliers/${id}/evaluations`, payload),
+  supplierCar: (id, vid) => postJson(`/api/suppliers/${id}/evaluations/${vid}/car`, {}),
+  supplierStatus: (id, version, status, reason) => postJson(`/api/suppliers/${id}/status`, { version, status, reason }),
   // งานของฉัน / การแจ้งเตือน
   notify: () => send('/api/notify').then((r) => r.json()),
   notifySettings: (email, emailOn) => postJson('/api/notify/settings', { email, emailOn }, 'PUT'),

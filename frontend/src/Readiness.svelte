@@ -47,6 +47,8 @@
     else if (/^DCR-/.test(code)) dispatch('goto', { tab: 'dcr' })
     else if (/^KPI-/.test(code)) dispatch('goto', { tab: 'kpi', ref: code.split(' ')[0] })
     else if (/^(RSK|OPP)-/.test(code)) dispatch('goto', { tab: 'risk', ref: code })
+    else if (/^EQ-/.test(code)) dispatch('goto', { tab: 'cal', ref: code })
+    else if (/^(SUP|SEV)-/.test(code)) dispatch('goto', { tab: 'sup', ref: code })
     else dispatch('goto', { tab: 'forms' })
   }
 </script>

@@ -629,6 +629,37 @@
   .heat-dot { @apply inline-block w-2.5 h-2.5 rounded-sm align-middle; }
   .lvl-badge { @apply text-[11px] font-bold px-2 py-px rounded-[20px] text-ink whitespace-nowrap; }
 
+  /* ---- เครื่องมือวัดและสอบเทียบ (Calibration.svelte) · ผู้ขาย (Suppliers.svelte) ---- */
+  .stat-row { @apply grid gap-3 mb-4; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .seg { @apply inline-flex rounded-lg overflow-hidden border border-line bg-white; }
+  .seg button { @apply px-3 py-[6px] text-[13px] font-sans text-ink bg-white border-0 cursor-pointer; border-right: 1px solid theme(colors.line); }
+  .seg button:last-child { border-right: 0; }
+  .seg button:hover { background: #f5f8fd; }
+  .seg button.on { @apply font-bold text-white; background: theme(colors.brand.DEFAULT); }
+  .seg button.on.r-pass, .seg button.on.i-none { background: theme(colors.ok.DEFAULT); }
+  .seg button.on.r-fail, .seg button.on.i-affected { background: theme(colors.danger.DEFAULT); }
+  .seg button.on.sc-1 { background: theme(colors.danger.DEFAULT); }
+  .seg button.on.sc-2 { background: #d9822b; }
+  .seg button.on.sc-3 { background: theme(colors.warn.DEFAULT); }
+  .seg button.on.sc-4 { background: #4f9d69; }
+  .seg button.on.sc-5 { background: theme(colors.ok.DEFAULT); }
+  .res-badge { @apply text-[11px] font-bold px-2 py-px rounded-[20px] whitespace-nowrap; }
+  .res-badge.r-pass { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  .res-badge.r-fail { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
+  .grade-badge { @apply inline-flex items-center justify-center w-[22px] h-[22px] rounded-full text-[12px] font-bold text-white align-middle; }
+  .grade-badge.g-A { background: theme(colors.ok.DEFAULT); }
+  .grade-badge.g-B { background: #4f9d69; }
+  .grade-badge.g-C { background: theme(colors.warn.DEFAULT); }
+  .grade-badge.g-D { background: theme(colors.danger.DEFAULT); }
+  .sev-grid { @apply flex flex-col gap-2 my-2; }
+  .sev-row { @apply grid items-center gap-3; grid-template-columns: 1fr auto auto; }
+  .sev-total { @apply text-[13.5px] my-3 px-3 py-2 rounded-lg; background: #f5f8fd; }
+  .sc-dot { @apply inline-flex items-center justify-center w-6 h-6 rounded-full text-[12px] font-bold; background: #eef1f6; }
+  .sc-dot.sc-1 { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
+  .sc-dot.sc-2 { background: #fbe9d7; color: #b25f14; }
+  .sc-dot.sc-4, .sc-dot.sc-5 { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  @media (max-width: 640px) { .sev-row { grid-template-columns: 1fr; gap: 4px; } }
+
   /* ---- งานของฉัน (Inbox.svelte) ---- */
   .bell { @apply relative inline-flex items-center justify-center w-9 h-9 rounded-full bg-white text-brand cursor-pointer; border: 1px solid theme(colors.line); }
   .bell:hover { @apply border-brand-600; }
