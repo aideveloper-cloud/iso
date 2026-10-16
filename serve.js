@@ -2,7 +2,7 @@
 // ใช้กับ deploy iso.kgarden.co.th ผ่าน Cloudflare Tunnel
 import { resolve, normalize, sep } from 'node:path'
 const PORT = Number(process.env.PORT || 8090)
-const API = process.env.API_TARGET || 'http://127.0.0.1:8080'
+const API = process.env.API_TARGET || 'http://127.0.0.1:8085'
 const CONV = process.env.CONV_TARGET || 'http://127.0.0.1:8081'
 const DIST = new URL('./frontend/dist/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 const DIST_ABS = resolve(DIST)

@@ -1,4 +1,5 @@
 <script>
+  import { fmtWhen } from './lib/changeNote.js'
   import { createEventDispatcher } from 'svelte'
   import { DEPTS, DEPTNAME, matchesQuery, sortByField } from './lib/const.js'
   import Icon from './Icon.svelte'
@@ -113,7 +114,7 @@
               {#if groupBy !== 'type'}<td><span class="tag {d.type}" title="กรองตามประเภท {d.type}" on:click|stopPropagation={() => (activeType = d.type)}>{d.type}</span></td>{/if}
               {#if groupBy !== 'dept'}<td class="dept-cell" title="กรองตามแผนก" on:click|stopPropagation={() => (fd = d.dept)}>{d.deptName}</td>{/if}
               <td>{d.rev}</td><td>{d.eff}</td>
-              <td><button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openDoc(d.code)} title={d.file}><Icon name="eye" size={14} /> เปิด / แก้ไข</button>{#if d.versionCount > 1}<span class="verpill" title="มี {d.versionCount} เวอร์ชัน">v{d.latestVersion}</span>{/if}</td>
+              <td><button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openDoc(d.code)} title={d.file}><Icon name="eye" size={14} /> เปิดดู</button>{#if d.versionCount > 1}<span class="verpill" title="มี {d.versionCount} เวอร์ชัน">v{d.latestVersion}</span>{#if d.lastAt}<div class="ver-last">อัปเดต {fmtWhen(d.lastAt)}<br />โดย {d.lastBy}</div>{/if}{/if}</td>
             </tr>
           {/each}
         </tbody>

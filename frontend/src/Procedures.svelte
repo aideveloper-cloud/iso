@@ -40,7 +40,7 @@
   function openDoc(code) { dispatch('open', code) }
 </script>
 
-  <div class="cat-head"><h2 class="cat-title inline-flex items-center gap-2"><Icon name="clipboard-list" size={20} /> วิธีปฏิบัติงาน และเอกสารแนบ</h2><p class="cat-desc">ระเบียบปฏิบัติ (QP) · วิธีปฏิบัติงาน (WI) · แบบฟอร์ม (FM) แยกตามแผนก — เปิดดู แก้ไขไฟล์ และอัปเดทเข้าสู่ระบบได้ทุกฉบับ</p></div>
+  <div class="cat-head"><h2 class="cat-title inline-flex items-center gap-2"><Icon name="clipboard-list" size={20} /> วิธีปฏิบัติงาน และเอกสารแนบ</h2><p class="cat-desc">ระเบียบปฏิบัติ (QP) · วิธีปฏิบัติงาน (WI) · แบบฟอร์ม (FM) แยกตามแผนก — เปิดดูได้ทุกฉบับ แก้ไขผ่านคำขอเปลี่ยนแปลง (DCR) เพื่อตรวจสอบและอนุมัติ</p></div>
 
 <!-- แท็บแผนก -->
 <div class="type-tabs">

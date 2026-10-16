@@ -31,8 +31,8 @@ Start-Process -WindowStyle Hidden -WorkingDirectory (Join-Path $root 'converter'
   -FilePath (Join-Path $root 'converter\iso-converter.exe') `
   -RedirectStandardOutput (Join-Path $log 'converter.log') -RedirectStandardError (Join-Path $log 'converter.err.log')
 
-# 3) Rust API (:8080) — release build
-$env:API_PORT = '8080'
+# 3) Rust API (:8085) — release build (8080 ชนกับโปรแกรมอื่นบนเครื่อง)
+$env:API_PORT = '8085'
 $env:CONVERTER_PORT = '8081'
 $env:DOCS_ROOT = '../data'
 $env:DATABASE_URL = 'host=localhost port=5432 user=iso password=iso dbname=iso'

@@ -1,0 +1,15 @@
+# Frontend (Svelte) build + Bun serve.js (static + proxy /api, /converter)
+FROM oven/bun:1 AS build
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY frontend/ ./
+RUN bun run build
+
+FROM oven/bun:1-slim
+ENV TZ=Asia/Bangkok
+WORKDIR /app
+COPY serve.js /app/serve.js
+COPY --from=build /src/frontend/dist /app/frontend/dist
+EXPOSE 8090
+CMD ["bun", "serve.js"]

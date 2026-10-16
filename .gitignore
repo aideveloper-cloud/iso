@@ -8,6 +8,7 @@ converter/*.exe
 data/docs/
 data/storage/
 data/versions.db
+data/backups/
 
 # editor/os
 .DS_Store
@@ -15,3 +16,14 @@ Thumbs.db
 
 # deploy runtime logs
 deploy/logs/
+
+# ข้อมูลพนักงานจริง (ชื่อ รหัส ตำแหน่ง บทบาท) — ห้ามขึ้น repo สาธารณะ
+data/eform/fmhr008-import.json
+# ค่าตั้งค่าเครื่องมือพัฒนาเฉพาะเครื่อง
+.claude/
+
+# ค่าลับของ deploy บนคลาวด์
+deploy/digitalocean/.env
+deploy/digitalocean/cloudflared/*.json
+deploy/digitalocean/cloudflared/config.yml
+data/pdfcache/

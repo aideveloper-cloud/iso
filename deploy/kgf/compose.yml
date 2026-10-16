@@ -1,0 +1,113 @@
+# iso.kgarden.co.th บน ServerKG (192.168.1.15, Colima) — kgf-iso.sh ส่งไฟล์นี้ไปที่ ~/server/apps/iso/docker-compose.yml
+# ฐานข้อมูลใช้ kgf-postgres กลาง (network kgf) · ค่าลับอยู่ใน .env บน server (DB_PASSWORD, ONLYOFFICE_JWT_SECRET)
+# ข้อมูลเอกสาร/เวอร์ชัน/backup, ฟอนต์ และ credentials ของ tunnel เก็บใน named volume (ไม่พึ่ง mount ของ Colima)
+name: iso
+
+services:
+  api:
+    image: kgf/iso-api:latest
+    pull_policy: never
+    container_name: iso-api
+    restart: unless-stopped
+    environment:
+      API_PORT: "8085"
+      CONVERTER_PORT: "8081"
+      DOCS_ROOT: /data
+      DATABASE_URL: host=kgf-postgres port=5432 user=iso password=${DB_PASSWORD:?ตั้ง DB_PASSWORD ใน .env} dbname=iso
+      BACKUP_PG_CONTAINER: ""   # pg_dump ต่อ kgf-postgres ตรง (ไม่มี docker ใน container)
+      GOTENBERG_URL: http://iso-pdf:3000
+      # ตัวแก้ไขเอกสารบนเว็บ (ONLYOFFICE) — เบราว์เซอร์เปิดที่ iso-office.kgarden.co.th, ส่วน container คุยกันภายใน network
+      ONLYOFFICE_URL: https://iso-office.kgarden.co.th
+      ONLYOFFICE_INTERNAL_URL: http://iso-office
+      ISO_INTERNAL_URL: http://iso-api:8085
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:?ตั้ง ONLYOFFICE_JWT_SECRET ใน .env}
+    volumes:
+      - iso-data:/data
+    networks: [kgf]
+    logging: &log { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+
+  # converter ใช้ network เดียวกับ api — API เรียก converter ที่ 127.0.0.1:8081 เหมือนบน Windows
+  converter:
+    image: kgf/iso-converter:latest
+    pull_policy: never
+    container_name: iso-converter
+    restart: unless-stopped
+    network_mode: "service:api"
+    environment:
+      CONVERTER_PORT: "8081"
+    volumes:
+      - iso-data:/data:ro
+    logging: *log
+
+  # Word/Excel → PDF สำหรับหน้าอ่านเอกสาร · ฟอนต์ไทยของเอกสาร (Angsana ฯลฯ) อยู่ใน volume iso-fonts
+  pdf:
+    image: gotenberg/gotenberg:8
+    container_name: iso-pdf
+    restart: unless-stopped
+    command: ["gotenberg", "--api-timeout=120s", "--libreoffice-restart-after=50"]
+    volumes:
+      - iso-fonts:/usr/local/share/fonts/windows:ro
+    networks: [kgf]
+    logging: *log
+
+  # ตัวแก้ไข Word/Excel บนเว็บ — เปิดผ่าน tunnel ที่ iso-office.kgarden.co.th (ไม่เปิดพอร์ตบนเครื่อง)
+  # ดึงไฟล์จาก/ส่ง callback ไปที่ iso-api ภายใน network (ALLOW_PRIVATE_IP_ADDRESS) และตรวจ JWT ทุกคำขอ
+  office:
+    image: onlyoffice/documentserver:9.0
+    container_name: iso-office
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "false"
+      TZ: Asia/Bangkok
+    volumes:
+      - iso-fonts:/usr/share/fonts/truetype/custom:ro
+      - iso-office-data:/var/www/onlyoffice/Data
+      - iso-office-logs:/var/log/onlyoffice
+    networks: [kgf]
+    logging: *log
+
+  web:
+    image: kgf/iso-web:latest
+    pull_policy: never
+    container_name: iso-web
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      PORT: "8090"
+      API_TARGET: http://iso-api:8085
+      CONV_TARGET: http://iso-api:8081
+    ports: ["8001:8090"]
+    networks: [kgf]
+    logging: *log
+
+  # Cloudflare Tunnel เดิม (iso-kgarden) — ห้ามรันพร้อมกับ cloudflared บน Windows
+  # เปิดด้วย profile แยก: docker compose --profile tunnel up -d tunnel (kgf-iso.sh cutover ทำให้)
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.0
+    container_name: iso-tunnel
+    restart: unless-stopped
+    profiles: [tunnel]
+    depends_on: [web, office]
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    # ไม่พึ่ง DNS ของ macOS/Colima — 15/10/2569 เครื่อง Mac เสีย DNS แล้ว tunnel หลุด (Error 1033)
+    dns: [1.1.1.1, 8.8.8.8]
+    volumes:
+      - iso-cloudflared:/etc/cloudflared:ro
+    networks: [kgf]
+    logging: *log
+
+# สร้างโดย kgf-iso.sh setup (compose ไม่ลบ/สร้างเอง — down แล้วข้อมูลไม่หาย)
+volumes:
+  iso-data: { external: true, name: iso_iso-data }
+  iso-fonts: { external: true, name: iso_iso-fonts }
+  iso-cloudflared: { external: true, name: iso_iso-cloudflared }
+  # สถานะภายในของ ONLYOFFICE (ไม่ใช่เอกสารควบคุม — ไฟล์จริงอยู่ใน iso-data)
+  iso-office-data:
+  iso-office-logs:
+
+networks:
+  kgf:
+    external: true

@@ -1,6 +1,8 @@
 <script>
-  import { createEventDispatcher } from 'svelte'
+  import { createEventDispatcher, onMount } from 'svelte'
+  import { api } from './lib/api.js'
   import { DEPTS, DEPTNAME } from './lib/const.js'
+  import { RD_STATUS, byStatus } from './lib/readiness.js'
   import Icon from './Icon.svelte'
   export let docs = []
   export let overview = []
@@ -41,6 +43,27 @@
   $: mx = Math.max(1, ...dc.map((x) => x.n))
   $: revised = docs.filter((d) => (d.versionCount || 1) > 1).slice(0, 8)
 
+  // ---- ภาพรวมความพร้อม (ข้อมูลจริงจาก /api/readiness และ /api/actions) ----
+  let rd = null, actions = []
+  onMount(async () => {
+    try { [rd, actions] = await Promise.all([api.readiness(), api.actions()]) } catch (e) {}
+  })
+  const todayIso = () => new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10)
+  $: openActs = actions.filter((a) => a.status !== 'closed')
+  $: lateActs = openActs.filter((a) => a.dueDate && a.dueDate < todayIso())
+  $: pendingDcr = docs.filter((d) => d.openChange)
+  $: attention = rd ? rd.controls.filter((c) => c.status !== 'pass').sort(byStatus).slice(0, 5) : []
+  $: topCards = [
+    { label: 'ความพร้อมรับการตรวจ', value: rd ? `${rd.score}%` : '…', icon: 'shield', tone: rd?.critical ? 'bad' : rd?.warnings ? 'warn' : 'ok',
+      note: rd ? `วิกฤต ${rd.critical} · ต้องติดตาม ${rd.warnings} · ผ่าน ${rd.passed}/${rd.total}` : 'กำลังคำนวณ', goto: { tab: 'audit' } },
+    { label: 'คำขอเปลี่ยนแปลงรออนุมัติ', value: pendingDcr.length, icon: 'clipboard-check', tone: pendingDcr.length ? 'warn' : 'ok',
+      note: pendingDcr.length ? pendingDcr.slice(0, 3).map((d) => d.openChange.refNo).join(', ') : 'ไม่มีคำขอค้าง', goto: { tab: 'dcr' } },
+    { label: 'CAR / DAR / PAR ที่ยังเปิด', value: openActs.length, icon: 'flag', tone: lateActs.length ? 'bad' : openActs.length ? 'warn' : 'ok',
+      note: `เกินกำหนด ${lateActs.length} ใบ`, goto: { tab: 'act' } },
+    { label: 'เอกสารควบคุมที่ใช้งาน', value: docs.filter((d) => d.docStatus !== 'obsolete' && !d.missing).length, icon: 'files', tone: docs.some((d) => d.missing) ? 'bad' : 'ok',
+      note: `ทั้งหมด ${docs.length} · ไฟล์หาย ${docs.filter((d) => d.missing).length} · ยกเลิกใช้ ${docs.filter((d) => d.docStatus === 'obsolete').length}`, goto: { tab: 'reg' } },
+  ]
+
   function go(detail) { dispatch('goto', detail) }
   function goOv(section) { go({ tab: 'ov', section }) }
   function goDept(dept) { go({ tab: 'proc', dept }) }
@@ -50,6 +73,34 @@
   <h2 class="cat-title inline-flex items-center gap-2"><Icon name="dashboard" size={20} /> การแสดงไฟล์เอกสารทั้งหมด</h2>
   <p class="cat-desc">เลือกหมวดด้านล่างแล้วเข้าดูรายการ — คลิกเอกสารเพื่อเปิด ประวัติเวอร์ชัน และการอัปเดทในระบบ</p>
 </div>
+
+<div class="rd-metrics">
+  {#each topCards as c}
+    <button type="button" class="rd-metric" on:click={() => go(c.goto)}>
+      <div class="rd-ml">{c.label}<Icon name={c.icon} size={18} /></div>
+      <div class="rd-mv">{c.value}</div>
+      <div class="rd-mn"><i class="dot {c.tone}"></i>{c.note}</div>
+    </button>
+  {/each}
+</div>
+
+{#if attention.length}
+  <div class="sec rd-attn">
+    <div class="flex items-center gap-2 mb-2">
+      <h2 class="!m-0">ต้องดำเนินการก่อน Audit</h2><span class="st-n">{rd.critical + rd.warnings}</span>
+      <span class="flex-1"></span>
+      <button class="mbtn gh" on:click={() => go({ tab: 'audit' })}>ดูทั้งหมด →</button>
+    </div>
+    {#each attention as c}
+      <button type="button" class="rd-attn-row" on:click={() => go({ tab: 'audit' })}>
+        <span class="rd-badge s-{c.status}">{RD_STATUS[c.status]}</span>
+        <span class="rd-clause">ข้อ {c.clause}</span>
+        <b>{c.title}</b>
+        <span class="mut truncate">{c.detail}</span>
+      </button>
+    {/each}
+  </div>
+{/if}
 
 <div class="hub-grid">
   <button type="button" class="hub-box" on:click={() => go({ tab: 'ov' })}>

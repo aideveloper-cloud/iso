@@ -1,0 +1,8 @@
+# คัดลอกเป็น config.yml แล้วแทน <TUNNEL-ID> ด้วย UUID ของ tunnel iso-kgarden
+# (ดูได้จาก C:\Users\aidev\.cloudflared\iso-config.yml บรรทัด tunnel:)
+tunnel: <TUNNEL-ID>
+credentials-file: /etc/cloudflared/<TUNNEL-ID>.json
+ingress:
+  - hostname: iso.kgarden.co.th
+    service: http://web:8090
+  - service: http_status:404

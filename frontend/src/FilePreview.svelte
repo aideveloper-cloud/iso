@@ -1,190 +1,124 @@
 <script>
-  import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte'
-  import * as XLSX from 'xlsx'
-  import { htmlToDocx } from './lib/htmldocx.js'
-  import { captureEditDraft, htmlFromDraft } from './lib/changeNote.js'
-  import { api, ovFileUrl, b64ToBytes, bytesToB64 } from './lib/api.js'
-  import { fileExt, fileKind } from './lib/const.js'
-  import { sheetFromWb } from './lib/sheet.js'
+  // ไฟล์ในคลังภาพรวมองค์กร (ไม่อยู่ในทะเบียน) — ดู · แก้บนเว็บ · อัปโหลดไฟล์ใหม่ ทุกครั้งเป็นเวอร์ชันใหม่ ไม่ทับของเดิม
+  //   เก็บผู้แก้ไข วันเวลา ชื่อไฟล์ และย้อนดู/ดาวน์โหลดเวอร์ชันเก่าได้
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte'
+  import { api, ovFileUrl, ovPdfUrl, bytesToB64 } from './lib/api.js'
+  import { fileExt, fileKind, OFFICE_EXTS } from './lib/const.js'
+  import { srcLabel, fmtWhen } from './lib/changeNote.js'
+  import DocBody from './DocBody.svelte'
   import SignDialog from './SignDialog.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import ChangeHistory from './ChangeHistory.svelte'
-  import RteToolbar from './RteToolbar.svelte'
   import EditActions from './EditActions.svelte'
+  import OfficeEdit from './OfficeEdit.svelte'
   import Icon from './Icon.svelte'
 
   export let file // { name, path, size? }
+  export let me = null
   const dispatch = createEventDispatcher()
 
-  let content = null, sheet = null, wb = null
+  let content = null
   let versions = []
+  let ver = null // เวอร์ชันที่กำลังดู (null = ล่าสุด)
   let err = '', loading = true
-  let dirty = false, editing = false, signing = false
-  let editorEl
+  let dirty = false, editing = false
+  let signing = null // 'edit' | 'upload' | 'office' | null
+  let gEdit = false // ตัวแก้ไขบนเว็บ (ONLYOFFICE)
+  let gEditId = null
+  let pendingUpload = null
+  let uploadInput
+  let body // DocBody
   let confirmAction = null // { message, run }
-  let draftHtml = ''
-  let draftSheet = null
+  let draft = null // { bytes, ext }
   let savedMsg = ''
   let tab = 'doc'
+  let manage = false // false = โหมดอ่าน (ค่าเริ่มต้น) · true = แสดงเครื่องมือแก้ไข/อัปโหลด
 
-  $: canEdit = content?.editable && (content.kind === 'html' || content.kind === 'sheet')
   $: latestVer = versions[0]?.version
+  $: isLatest = !ver || ver === latestVer
+  $: writer = me && me.role !== 'viewer'
+  $: canWebOffice = writer && isLatest && OFFICE_EXTS.includes(fileExt(file))
+  // ตัวแก้ไขบนเว็บแบบเดิม — เฉพาะไฟล์ที่ ONLYOFFICE แก้ไม่ได้
+  $: canEdit = !canWebOffice && writer && isLatest && content?.editable && (content.kind === 'html' || content.kind === 'sheet')
+  $: shownVer = ver || content?.version || null
+  $: dl = (v) => ovFileUrl(file.path, true) + (v ? `&v=${v}` : '')
+  $: view = (v) => ovFileUrl(file.path) + (v ? `&v=${v}` : '')
 
-  function exec(e) {
-    const { cmd, val } = e.detail
-    document.execCommand(cmd, false, val || null)
-    editorEl?.focus()
-    dirty = true
+  function askConfirm(message, run) { confirmAction = { message, run } }
+  function cancelEdit() { editing = false; dirty = false; load(ver) }
+  function startEdit() { manage = true; editing = true; dirty = false }
+  const nextV = () => (latestVer || content?.version || 1) + 1
+
+  onMount(() => { load().then(resumeWebOffice); window.addEventListener('keydown', onKey) })
+  /** มีรอบแก้ไขค้างอยู่ → เปิดตัวแก้ไขต่อให้เลย */
+  async function resumeWebOffice() {
+    if (!canWebOffice) return
+    try { if (await api.ovEditMine(file.path)) openWebOffice() } catch (e) { /* ไม่มีรอบค้าง */ }
   }
-
-  function askConfirm(message, run) {
-    confirmAction = { message, run }
-  }
-
-  function cancelEdit() {
-    editing = false
-    dirty = false
-    load()
-  }
-
-  async function startEdit() {
-    editing = true
-    dirty = false
-    await tick()
-    if (editorEl && content?.kind === 'html') {
-      editorEl.innerHTML = content.html || ''
-    }
-  }
-
-  function nextV() {
-    return (latestVer || content?.version || 1) + 1
-  }
-
-  onMount(() => {
-    load()
-    window.addEventListener('keydown', onKey)
-  })
+  function openWebOffice() { tab = 'doc'; manage = true; gEdit = true }
   onDestroy(() => window.removeEventListener('keydown', onKey))
+  function onKey(e) { if (e.key === 'Escape' && !signing && !confirmAction && !gEdit) close() }
 
-  function onKey(e) {
-    if (e.key === 'Escape' && !signing && !confirmAction) close()
-  }
-
-  async function loadVersions(code) {
-    if (!code) {
-      versions = []
-      return
-    }
+  async function load(v = null) {
+    loading = true; err = ''; content = null; dirty = false; editing = false
     try {
-      const meta = await api.versions(code)
-      versions = meta?.versions || []
-    } catch {
-      versions = []
-    }
-  }
-
-  async function load() {
-    loading = true
-    err = ''
-    content = null
-    sheet = null
-    dirty = false
-    editing = false
-    try {
-      content = await api.overviewContent(file.path)
+      const h = await api.overviewHistory(file.path)
+      versions = h?.versions || []
+      ver = v
+      content = await api.overviewContent(file.path, v)
       if (content.error) throw new Error(content.error)
-      if (content.kind === 'sheet') {
-        wb = XLSX.read(b64ToBytes(content.data), { type: 'array' })
-        pickSheet(wb.SheetNames[0])
-      }
-      await loadVersions(content.docCode)
     } catch (e) {
       err = 'เปิดเอกสารไม่สำเร็จ: ' + e.message
     }
     loading = false
   }
 
-  function pickSheet(name) {
-    sheet = sheetFromWb(wb, name)
+  async function beginUpdate() {
+    err = ''
+    try { draft = await body.buildEdited(); signing = 'edit' } catch (e) { err = 'สร้างไฟล์ที่แก้ไขไม่สำเร็จ: ' + e.message }
   }
-
-  function switchSheet(name) {
-    if (!dirty) {
-      pickSheet(name)
-      return
-    }
-    askConfirm('สลับชีตจะไม่เก็บการแก้ไขที่ยังไม่บันทึก ดำเนินการต่อ?', () => {
-      pickSheet(name)
-      dirty = false
-    })
-  }
-
-  function addRow() {
-    sheet.rows = [...sheet.rows, Array(sheet.rows[0].length).fill('')]
-    dirty = true
-  }
-
-  async function buildEditedFile() {
-    if (content.kind === 'sheet') {
-      const active = draftSheet?.active || sheet.active
-      const rows = draftSheet?.rows || sheet.rows
-      const ws = XLSX.utils.aoa_to_sheet(rows)
-      wb.Sheets[active] = ws
-      const e = (content.ext || fileExt(file)).toLowerCase() === 'xls' ? 'xls' : 'xlsx'
-      const out = XLSX.write(wb, { bookType: e === 'xls' ? 'biff8' : 'xlsx', type: 'array' })
-      return new Uint8Array(out)
-    }
-    return htmlToDocx(htmlFromDraft(draftHtml, editorEl, content))
-  }
-
-  function beginUpdate() {
-    const draft = captureEditDraft(content, sheet, editorEl)
-    draftHtml = draft.draftHtml
-    draftSheet = draft.draftSheet
-    signing = true
+  function onPickFile(e) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    if (f.size > 40 * 1024 * 1024) { err = 'ไฟล์ใหญ่เกิน 40 MB'; return }
+    const rd = new FileReader()
+    rd.onload = () => { pendingUpload = { name: f.name, b64: String(rd.result).split(',')[1], size: f.size }; signing = 'upload' }
+    rd.readAsDataURL(f)
   }
 
   async function doSave(e) {
-    const { signerName, signerRole, note, fail } = e.detail
+    const { note, fail } = e.detail
     try {
-      const bytes = await buildEditedFile()
-      const { ok, body } = await api.overviewSave({
-        path: file.path,
-        dataBase64: bytesToB64(bytes),
-        signerName,
-        signerRole,
-        note,
-      })
-      if (!ok) {
-        fail(body.error || 'อัปเดทไม่สำเร็จ')
+      if (signing === 'office') {
+        const { ok, body } = await api.editCommit(gEditId, note)
+        if (!ok) { fail(body.error || 'บันทึกไม่สำเร็จ'); return }
+        signing = null; gEdit = false; gEditId = null
+        savedMsg = `บันทึกการแก้ไขสำเร็จ — เป็นเวอร์ชัน ${body.latestVersion} (เวอร์ชันก่อนหน้ายังเก็บไว้ครบ)`
+        await load()
+        dispatch('saved', body)
+        setTimeout(() => { savedMsg = '' }, 8000)
         return
       }
-      signing = false
-      draftHtml = ''
-      draftSheet = null
-      savedMsg = body.latestVersion
-        ? `บันทึกการแก้ไขไฟล์สำเร็จ — เวอร์ชัน ${body.latestVersion} อยู่ในระบบแล้ว`
-        : 'บันทึกการแก้ไขไฟล์สำเร็จ'
+      const payload = signing === 'edit'
+        ? { path: file.path, dataBase64: bytesToB64(draft.bytes), note }
+        : { path: file.path, dataBase64: pendingUpload.b64, filename: pendingUpload.name, note }
+      const { ok, body } = await api.overviewSave(payload)
+      if (!ok) { fail(body.error || 'บันทึกไม่สำเร็จ'); return }
+      const how = signing === 'edit' ? 'บันทึกการแก้ไข' : `อัปโหลด “${pendingUpload.name}”`
+      signing = null; draft = null; pendingUpload = null
+      savedMsg = `${how}สำเร็จ — เป็นเวอร์ชัน ${body.latestVersion} (เวอร์ชันก่อนหน้ายังเก็บไว้ครบ)`
       await load()
       dispatch('saved', body)
-      setTimeout(() => { savedMsg = '' }, 6000)
-    } catch (ex) {
-      fail('อัปเดทไม่สำเร็จ: ' + ex.message)
-    }
+      setTimeout(() => { savedMsg = '' }, 8000)
+    } catch (ex) { fail('บันทึกไม่สำเร็จ: ' + ex.message) }
   }
 
   function close() {
-    if (!dirty) {
-      dispatch('close')
-      return
-    }
+    if (!dirty) { dispatch('close'); return }
     askConfirm('มีการแก้ไขที่ยังไม่ได้บันทึก ปิดหน้าต่างเลยหรือไม่?', () => dispatch('close'))
   }
-
-  function cellInput(ri, ci, e) {
-    sheet.rows[ri][ci] = e.currentTarget.value
-    dirty = true
-  }
+  function openVersion(v) { tab = 'doc'; load(v === latestVer ? null : v) }
 </script>
 
 <div class="mbg" on:mousedown|self={close}>
@@ -192,10 +126,14 @@
     <header class="mhead">
       <div class="mt">
         <b>{file.name}</b>
-        {#if content?.version}<span class="status-active">Active</span>{/if}
+        {#if content?.version && isLatest}<span class="status-active">Active</span>{/if}
         <div class="msub">
           {fileKind(fileExt(file)).label}{#if file.size} · {(file.size / 1024).toFixed(0)} KB{/if}
-          {#if content?.version}<span class="ver-badge latest inline-flex items-center gap-1 ml-1"><Icon name="circle-check" size={12} /> ในระบบ v{content.version}</span>{/if}
+          {#if shownVer}
+            {#if isLatest}<span class="ver-badge latest inline-flex items-center gap-1 ml-1"><Icon name="circle-check" size={12} /> เวอร์ชันล่าสุด v{shownVer}</span>
+            {:else}<span class="ver-badge old inline-flex items-center gap-1 ml-1"><Icon name="alert-triangle" size={12} /> เวอร์ชันเก่า v{shownVer} · ล่าสุด v{latestVer}</span>{/if}
+          {/if}
+          {#if versions[0] && versions[0].source !== 'original'}<span class="mut"> · อัปเดตล่าสุด {fmtWhen(versions[0].signedAt)} โดย {versions[0].signerName}</span>{/if}
           {#if editing}<span class="ver-badge latest inline-flex items-center gap-1 ml-1"><Icon name="pencil" size={12} /> กำลังแก้ไข</span>{/if}
         </div>
       </div>
@@ -204,93 +142,92 @@
 
     <nav class="mtabs">
       <button class={tab === 'doc' ? 'active' : ''} on:click={() => (tab = 'doc')}>เอกสาร</button>
-      {#if versions.length}
-        <button class={tab === 'hist' ? 'active' : ''} on:click={() => (tab = 'hist')}>ประวัติการแก้ไข ({versions.length})</button>
-      {/if}
+      <button class={tab === 'hist' ? 'active' : ''} on:click={() => (tab = 'hist')}>ประวัติเวอร์ชัน ({versions.length})</button>
       <span class="grow"></span>
-      {#if !loading && tab === 'doc'}
-        <a class="mbtn gh inline-flex items-center gap-1.5" href={ovFileUrl(file.path, true)} download={file.name}><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>
-        {#if canEdit}
-          <EditActions {editing} {dirty} on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
+      {#if !loading && tab === 'doc' && content}
+        <a class="mbtn gh inline-flex items-center gap-1.5" href={dl(ver)} download><Icon name="download" size={14} /> ดาวน์โหลด{ver ? ` v${ver}` : ''}</a>
+        {#if editing}<EditActions {editing} {dirty} on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
+        {:else if manage}<button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => { manage = false; gEdit = false }}><Icon name="eye" size={14} /> กลับโหมดอ่าน</button>
+        {:else if writer && isLatest}
+          {#if canWebOffice}<button class="mbtn accent inline-flex items-center gap-1.5" on:click={openWebOffice}><Icon name="pencil" size={14} /> แก้ไขเอกสาร</button>{/if}
+          <button class="mbtn {canWebOffice ? 'gh' : 'accent'} inline-flex items-center gap-1.5" on:click={() => (manage = true)}><Icon name={canWebOffice ? 'cloud-upload' : 'pencil'} size={14} /> {canWebOffice ? 'อัปโหลดไฟล์ใหม่' : 'แก้ไข / อัปโหลด'}</button>
         {/if}
       {/if}
     </nav>
+    <input bind:this={uploadInput} type="file" class="hidden" on:change={onPickFile} />
 
     <div class="mbody">
       {#if savedMsg}<div class="save-ok inline-flex items-center gap-1.5"><Icon name="circle-check" size={16} /> {savedMsg}</div>{/if}
-      {#if err}<div class="merr"><span>{err}</span><button class="retry" on:click={load}>ลองใหม่</button></div>{/if}
+      {#if err}<div class="merr"><span>{err}</span><button class="retry" on:click={() => load(ver)}>ลองใหม่</button></div>{/if}
       {#if loading}
         <div class="loadwrap"><span class="spin"></span><p class="mnote">กำลังเปิดเอกสาร…</p></div>
-      {:else if tab === 'hist' && versions.length}
-        <ChangeHistory {versions} showSigner />
+      {:else if tab === 'hist'}
+        {#if !versions.length}
+          <div class="empty-state"><Icon name="clock" size={34} stroke={1.5} /><p>ยังไม่มีการแก้ไขหรืออัปโหลด — ไฟล์นี้ยังเป็นต้นฉบับจากแฟ้ม</p></div>
+        {:else}
+          <ChangeHistory {versions} currentVer={shownVer} showSigner>
+            <svelte:fragment slot="actions" let:v>
+              {#if v.version !== shownVer}<button class="mbtn gh" on:click={() => openVersion(v.version)}>เปิดดู</button>{/if}
+              <a class="mbtn gh" href={dl(v.version)} download>ดาวน์โหลด</a>
+            </svelte:fragment>
+          </ChangeHistory>
+          <div class="vtree">
+            {#each versions as v}
+              <div class="vrow {v.version === shownVer ? 'cur' : ''}">
+                <div class="vcard">
+                  <div class="vtop"><span class="vn">Ver {v.version}</span><span class="vsrc {v.source}">{srcLabel(v.source)}</span>{#if v.version === latestVer}<span class="ver-badge latest">ล่าสุด</span>{/if}</div>
+                  <div class="vwho inline-flex items-center gap-1.5"><Icon name="pen-line" size={14} /> <b>{v.signerName}</b>{#if v.signerRole} · {v.signerRole}{/if}</div>
+                  <div class="vmeta inline-flex items-center gap-1.5"><Icon name="clock" size={12} /> {fmtWhen(v.signedAt)} · {v.filename}{#if v.size} · {(v.size / 1024).toFixed(0)} KB{/if}</div>
+                  {#if v.note}<div class="vnote inline-flex items-center gap-1.5"><Icon name="note" size={13} /> {v.note}</div>{/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
       {:else if content}
+        {#if !manage && !editing}
+          <div class="read-bar">
+            <span class="read-mode inline-flex items-center gap-1.5"><Icon name="eye" size={14} /> โหมดอ่าน</span>
+            <span class="mut">อ่านอย่างเดียว{#if writer && isLatest} — ต้องการแก้ไขให้กด “แก้ไข / อัปโหลด”{/if}</span>
+            <span class="grow"></span>
+            <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติ ({versions.length})</button>
+          </div>
+        {:else if !gEdit}
         <div class="file-tools">
           <div class="ft-head">
             <b>การแก้ไขไฟล์</b>
-            <span class="mut">ดู · แก้บนเว็บ · อัปเดทเข้าสู่ระบบ · บันทึกประวัติ</span>
+            <span class="mut">แก้บนเว็บหรืออัปโหลดไฟล์ใหม่ — ทุกครั้งบันทึกเป็นเวอร์ชันใหม่ พร้อมผู้แก้ไขและวันเวลา ไม่ทับเวอร์ชันเดิม</span>
           </div>
           <div class="ft-actions">
             {#if canEdit}
               <EditActions {editing} {dirty} accent editLabel="แก้ไขไฟล์บนเว็บ" on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
-            {:else}
-              <span class="ft-hint">ไฟล์ชนิดนี้แก้บนเว็บไม่ได้ — ดาวน์โหลดแล้วอัปโหลดผ่านทะเบียนหากต้องการเปลี่ยน</span>
+            {:else if writer && isLatest}
+              <span class="ft-hint">ไฟล์ชนิดนี้แก้บนเว็บไม่ได้ — ใช้อัปโหลดไฟล์เวอร์ชันใหม่</span>
             {/if}
-            <a class="mbtn gh inline-flex items-center gap-1.5" href={ovFileUrl(file.path, true)} download={file.name}><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>
-            {#if versions.length}
-              <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติการแก้ไข ({versions.length})</button>
+            {#if writer && isLatest && !editing}
+              <button class="mbtn inline-flex items-center gap-1.5" on:click={() => uploadInput.click()}><Icon name="cloud-upload" size={14} /> อัปโหลดไฟล์เวอร์ชันใหม่</button>
             {/if}
+            <a class="mbtn gh inline-flex items-center gap-1.5" href={dl(ver)} download><Icon name="download" size={14} /> ดาวน์โหลด</a>
+            <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (tab = 'hist')}><Icon name="clock" size={14} /> ประวัติเวอร์ชัน ({versions.length})</button>
           </div>
         </div>
+        {#if !editing}<ChangeHistory {versions} currentVer={shownVer} onDoc />{/if}
+        {/if}
 
-        <ChangeHistory {versions} onDoc />
-
-        {#if content.kind === 'sheet' && sheet}
-          {#if sheet.names.length > 1}
-            <div class="sheettabs">
-              {#each sheet.names as n}
-                <button class={n === sheet.active ? 'active' : ''} on:click={() => switchSheet(n)}>{n}</button>
-              {/each}
-            </div>
-          {/if}
-          {#if editing}<div class="edhint inline-flex items-center gap-1.5"><Icon name="pencil" size={14} /> กำลังแก้ไข — พิมพ์ในช่องแล้วกด “อัปเดทเข้าสู่ระบบ”</div>{/if}
-          <div class="sheetwrap">
-            <table class="sheet"><tbody>
-              {#each sheet.rows as row, ri}
-                <tr>
-                  <th class="rn">{ri + 1}</th>
-                  {#each row as cell, ci}
-                    <td>
-                      {#if editing}
-                        <input value={sheet.rows[ri][ci]} on:input={(e) => cellInput(ri, ci, e)} />
-                      {:else}<span>{cell}</span>{/if}
-                    </td>
-                  {/each}
-                </tr>
-              {/each}
-            </tbody></table>
+        {#if !isLatest}
+          <div class="ver-warn">
+            <Icon name="alert-triangle" size={16} />
+            <span>กำลังดูเวอร์ชันเก่า (v{shownVer}) — ฉบับล่าสุดคือ <b>v{latestVer}</b></span>
+            <button class="vw-btn" on:click={() => load()}>ไปเวอร์ชันล่าสุด</button>
           </div>
-          {#if editing}<button class="mbtn gh" on:click={addRow}>+ เพิ่มแถว</button>{/if}
-        {:else if content.kind === 'html'}
-          {#if editing}
-            <div class="edhint inline-flex items-center gap-1.5"><Icon name="pencil" size={14} /> กำลังแก้ไขไฟล์ — แก้ข้อความ/ตารางได้ แล้วกด “อัปเดทเข้าสู่ระบบ” เพื่อบันทึกประวัติ</div>
-            <RteToolbar on:exec={exec} />
-            <div class="dochtml rte" contenteditable="true" bind:this={editorEl} on:input={() => (dirty = true)}></div>
-          {:else}
-            <div class="dochtml">{@html content.html}</div>
-          {/if}
-        {:else if content.kind === 'embed'}
-          {#if content.ext === 'pdf'}
-            <iframe class="docframe" src={ovFileUrl(file.path)} title={file.name}></iframe>
-          {:else}
-            <img class="docimg" src={ovFileUrl(file.path)} alt={file.name} />
-          {/if}
-          <p class="mnote mt-3">ไฟล์ PDF/รูปเปิดดูได้อย่างเดียว — อัปโหลดไฟล์ใหม่ผ่านทะเบียนเอกสารหากต้องการเปลี่ยน</p>
+        {/if}
+
+        {#if gEdit && canWebOffice}
+          <OfficeEdit ovPath={file.path} submitLabel="บันทึกเป็นเวอร์ชันใหม่"
+            on:submit={(e) => { gEditId = e.detail.editId; signing = 'office' }}
+            on:closed={() => (gEdit = false)} />
         {:else}
-          <div class="nopreview">
-            <div class="big text-faint flex justify-center"><Icon name="file-text" size={44} stroke={1.5} /></div>
-            <p>{content.reason || 'เปิดดูบนหน้าเว็บไม่ได้'}</p>
-            <a class="mbtn inline-flex items-center gap-1.5" href={ovFileUrl(file.path, true)} download={file.name}><Icon name="download" size={14} /> ดาวน์โหลดไฟล์</a>
-          </div>
+          <DocBody bind:this={body} {content} name={file.name} origUrl={view(ver)} embedUrl={view(ver)} downloadUrl={dl(ver)} pdfUrl={ovPdfUrl(file.path, ver)} {editing} bind:dirty />
         {/if}
       {/if}
     </div>
@@ -298,23 +235,20 @@
     {#if signing}
       <SignDialog
         title={file.name}
-        summary={`แก้ไขไฟล์บนเว็บ → บันทึกเป็นเวอร์ชัน ${nextV()} พร้อมประวัติการเปลี่ยนแปลง`}
-        confirmLabel="อัปเดทในระบบ"
+        summary={signing === 'office' || signing === 'edit'
+          ? `แก้ไขไฟล์บนเว็บ → บันทึกเป็นเวอร์ชัน ${nextV()} (เวอร์ชันเดิมยังเก็บไว้)`
+          : `อัปโหลด “${pendingUpload?.name}” → บันทึกเป็นเวอร์ชัน ${nextV()} (เวอร์ชันเดิมยังเก็บไว้)`}
+        confirmLabel="บันทึกเป็นเวอร์ชันใหม่"
         fullChange={true}
+        {me}
         on:confirm={doSave}
-        on:cancel={() => (signing = false)}
+        on:cancel={() => { signing = null; pendingUpload = null }}
       />
     {/if}
 
     {#if confirmAction}
-      <ConfirmDialog
-        title="ยืนยันการทำรายการ"
-        message={confirmAction.message}
-        confirmLabel="ดำเนินการต่อ"
-        danger
-        on:confirm={() => { confirmAction.run(); confirmAction = null }}
-        on:cancel={() => (confirmAction = null)}
-      />
+      <ConfirmDialog title="ยืนยันการทำรายการ" message={confirmAction.message} confirmLabel="ดำเนินการต่อ" danger
+        on:confirm={() => { confirmAction.run(); confirmAction = null }} on:cancel={() => (confirmAction = null)} />
     {/if}
   </div>
 </div>

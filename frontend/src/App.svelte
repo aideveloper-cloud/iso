@@ -6,21 +6,41 @@
   import Procedures from './Procedures.svelte'
   import Register from './Register.svelte'
   import Actions from './Actions.svelte'
-  import Audit from './Audit.svelte'
+  import AuditHub from './AuditHub.svelte'
+  import Changes from './Changes.svelte'
+  import ManagementReview from './ManagementReview.svelte'
+  import InternalAudit from './InternalAudit.svelte'
+  import Acks from './Acks.svelte'
+  import TrainingMatrix from './TrainingMatrix.svelte'
+  import Users from './Users.svelte'
+  import AuditTrail from './AuditTrail.svelte'
+  import Forms from './Forms.svelte'
+  import Login from './Login.svelte'
+  import ForcePin from './ForcePin.svelte'
+  import Checkin from './Checkin.svelte'
   import DocViewer from './DocViewer.svelte'
   import FilePreview from './FilePreview.svelte'
   import Icon from './Icon.svelte'
 
-  const TABS = ['dash', 'ov', 'proc', 'reg', 'act', 'audit']
+  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm']
   let tab = 'dash'
   let docs = [], overview = []
   let openCode = null
+  let openChangeId = null // เปิด DocViewer ที่คำขอเปลี่ยนแปลงใบนี้
+  let pendingDocs = 0
+  let pendingAcks = 0
+  let dcrRefresh = 0
+  let ovRefresh = 0
   let ovFile = null
   let loaded = false
   let loadErr = ''
   let slim = false
   const JUMP_BASE = { type: '', dept: '', unreg: false, section: '', q: '' }
   let jump = { n: 0, ...JUMP_BASE }
+  let me = null
+  let pending = 0
+  let checkinToken = ''
+  let formLaunch = null
 
   const NAV = [
     { group: 'ภาพรวม', items: [['dash', 'dashboard', 'แดชบอร์ด']] },
@@ -30,10 +50,23 @@
       ['reg', 'library', 'ทะเบียนเอกสารทั้งหมด'],
     ] },
     { group: 'ติดตามงาน', items: [
+      ['dcr', 'clipboard-check', 'คำขอเปลี่ยนแปลงเอกสาร'],
+      ['ack', 'circle-check', 'การรับทราบเอกสาร'],
+      ['tm', 'user', 'Training matrix'],
+      ['forms', 'clipboard-list', 'บันทึกแบบฟอร์ม'],
       ['act', 'clipboard-check', 'CAR / DAR / PAR'],
+      ['ia', 'list-checks', 'ตรวจติดตามภายใน'],
+      ['mr', 'building', 'ทบทวนฝ่ายบริหาร'],
       ['audit', 'list-checks', 'เตรียม Audit'],
     ] },
   ]
+
+  // เมนูผู้ดูแลระบบแสดงเฉพาะ admin (server ตรวจสิทธิ์ซ้ำทุกคำขอ)
+  $: adminItems = [
+    ...(['reviewer', 'approver', 'admin'].includes(me?.role) ? [['trail', 'list-checks', 'บันทึกการใช้งาน']] : []),
+    ...(me?.role === 'admin' ? [['users', 'user', 'ผู้ใช้และสิทธิ์']] : []),
+  ]
+  $: nav = adminItems.length ? [...NAV, { group: 'ผู้ดูแลระบบ / ตรวจสอบ', items: adminItems }] : NAV
 
   async function loadDocs() { docs = await api.docs() }
   async function loadAll() {
@@ -43,10 +76,42 @@
       loaded = true
     } catch (e) { loadErr = 'โหลดข้อมูลไม่สำเร็จ: ' + e.message }
   }
+  function loggedIn(user) {
+    me = user
+    if (user?.mustChangePin) return
+    loadAll()
+    refreshPending()
+  }
+  function refreshPending() {
+    api.me().then((m) => { pending = m.pending || 0; pendingDocs = m.pendingDocs || 0; pendingAcks = m.pendingAcks || 0 }).catch(() => {})
+  }
+  async function logout() {
+    try { await api.logout() } catch (e) {}
+    localStorage.removeItem('isoToken')
+    me = null
+  }
+  function onEform(e) {
+    formLaunch = { code: e.detail.code, mode: e.detail.mode, n: Date.now() }
+    openCode = null
+    goTab('forms')
+  }
   onMount(async () => {
+    const hash = location.hash || ''
+    if (hash.startsWith('#checkin=')) checkinToken = decodeURIComponent(hash.slice('#checkin='.length))
+    const onUnauth = () => { me = null }
+    window.addEventListener('iso-unauth', onUnauth)
     try { const t = localStorage.getItem('activeTab'); if (t && TABS.includes(t)) tab = t } catch (e) {}
     try { slim = localStorage.getItem('sidebarSlim') === '1' } catch (e) {}
-    await loadAll()
+    if (!checkinToken && localStorage.getItem('isoToken')) {
+      try {
+        const m = await api.me()
+        me = m.user
+        pending = m.pending || 0
+        pendingDocs = m.pendingDocs || 0
+        pendingAcks = m.pendingAcks || 0
+        if (!me?.mustChangePin) await loadAll()
+      } catch (e) { me = null }
+    }
   })
   function goTab(k) {
     tab = k
@@ -88,6 +153,7 @@
     const norm = (p) => (p || '').replace(/\\/g, '/')
     const registered = docs.find((d) => norm(d.path) === norm(f.path))
     openCode = registered?.code ?? null
+    openChangeId = null
     ovFile = registered ? null : f
   }
   function gsOpenOv(f) {
@@ -112,10 +178,24 @@
   }
 
   $: openDoc = openCode ? docs.find((d) => d.code === openCode) : null
-  function open(e) { openCode = e.detail; ovFile = null }
-  async function onSaved() { await loadDocs() }
+  function open(e) { openCode = e.detail; openChangeId = null; ovFile = null }
+  function openChange(e) { openCode = e.detail.code; openChangeId = e.detail.change; ovFile = null }
+  function closeDoc() { openCode = null; openChangeId = null }
+  async function onSaved() {
+    await loadDocs()
+    refreshPending()
+    dcrRefresh += 1
+    ovRefresh += 1
+  }
 </script>
 
+{#if checkinToken}
+  <Checkin token={checkinToken} />
+{:else if !me}
+  <Login onOk={loggedIn} />
+{:else if me.mustChangePin}
+  <ForcePin {me} onDone={() => { localStorage.removeItem('isoToken'); me = null }} onLogout={logout} />
+{:else}
 <div class="app">
   <aside class="sidebar {slim ? 'slim' : ''}">
     <div class="brand">
@@ -123,11 +203,11 @@
       <div class="tx"><b>ระบบควบคุมเอกสาร</b><small>ISO 9001:2015 · v2</small></div>
     </div>
     <nav>
-      {#each NAV as g}
+      {#each nav as g}
         <div class="navgroup-label">{g.group}</div>
         {#each g.items as [k, ic, label]}
           <button class={tab === k ? 'active' : ''} title={label} on:click={() => goTab(k)}>
-            <span class="ic"><Icon name={ic} size={18} /></span><span class="lb">{label}</span>
+            <span class="ic"><Icon name={ic} size={18} /></span><span class="lb">{label}{#if k === 'forms' && pending} ({pending}){/if}{#if k === 'dcr' && pendingDocs} ({pendingDocs}){/if}{#if k === 'ack' && pendingAcks} ({pendingAcks}){/if}</span>
           </button>
         {/each}
       {/each}
@@ -189,6 +269,9 @@
             {/if}
           </div>
         {/if}
+        {#if me}
+          <div class="note m-0 whitespace-nowrap">{me.name}<button class="mbtn gh" on:click={logout}>ออก</button></div>
+        {/if}
       </div>
     </header>
 
@@ -201,15 +284,31 @@
       {:else if tab === 'dash'}
         <Dashboard {docs} {overview} on:open={open} on:goto={onGoto} />
       {:else if tab === 'ov'}
-        <Overview {overview} {jump} on:preview={(e) => openOvFile(e.detail)} />
+        <Overview {overview} {jump} refresh={ovRefresh} on:preview={(e) => openOvFile(e.detail)} />
       {:else if tab === 'proc'}
         <Procedures {docs} {jump} on:open={open} />
       {:else if tab === 'reg'}
         <Register {docs} {jump} on:open={open} />
+      {:else if tab === 'dcr'}
+        <Changes {me} refresh={dcrRefresh} on:open={openChange} />
+      {:else if tab === 'tm'}
+        <TrainingMatrix {me} {docs} on:open={open} />
+      {:else if tab === 'ack'}
+        <Acks {me} {docs} refresh={dcrRefresh} on:open={open} />
+      {:else if tab === 'ia'}
+        <InternalAudit {me} {docs} />
+      {:else if tab === 'mr'}
+        <ManagementReview {me} on:doc={(e) => { openCode = docs.some((d) => d.code === e.detail) ? e.detail : openCode }} />
+      {:else if tab === 'trail'}
+        <AuditTrail {me} />
+      {:else if tab === 'users'}
+        <Users {me} />
       {:else if tab === 'act'}
-        <Actions {docs} />
+        <Actions {docs} {me} />
       {:else if tab === 'audit'}
-        <Audit {docs} on:open={open} />
+        <AuditHub {docs} {me} on:open={open} on:goto={onGoto} />
+      {:else if tab === 'forms'}
+        <Forms launch={formLaunch} {me} />
       {/if}
     </div>
 
@@ -219,11 +318,12 @@
 
 {#if openDoc}
   {#key openDoc.code}
-    <DocViewer doc={openDoc} on:close={() => (openCode = null)} on:saved={onSaved} />
+    <DocViewer doc={openDoc} {me} initialChange={openChangeId} on:close={closeDoc} on:saved={onSaved} on:eform={onEform} />
   {/key}
 {/if}
 {#if ovFile}
   {#key ovFile.path}
-    <FilePreview file={ovFile} on:close={() => (ovFile = null)} on:saved={onSaved} />
+    <FilePreview file={ovFile} {me} on:close={() => (ovFile = null)} on:saved={onSaved} />
   {/key}
+{/if}
 {/if}

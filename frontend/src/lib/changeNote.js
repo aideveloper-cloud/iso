@@ -66,20 +66,21 @@ export function fmtWhen(iso) {
   }
 }
 
-/** สแนปช็อตเนื้อหาตอนกดอัปเดท (ก่อน SignDialog) */
-export function captureEditDraft(content, sheet, editorEl) {
-  if (content?.kind === 'sheet' && sheet) {
-    return {
-      draftSheet: { active: sheet.active, rows: sheet.rows.map((r) => r.slice()) },
-      draftHtml: '',
-    }
-  }
-  return {
-    draftHtml: editorEl ? editorEl.innerHTML : (content?.html || ''),
-    draftSheet: null,
-  }
+/** สถานะคำขอเปลี่ยนแปลงเอกสาร (DCR) */
+export const DCR_STATUS = {
+  review: 'รอตรวจสอบ',
+  approve: 'รออนุมัติ',
+  returned: 'ถูกตีกลับ',
+  effective: 'มีผลบังคับใช้',
+  cancelled: 'ยกเลิกคำขอ',
 }
 
-export function htmlFromDraft(draftHtml, editorEl, content) {
-  return draftHtml || (editorEl ? editorEl.innerHTML : content?.html)
+/** ป้ายขั้นตอนการลงนามของ DCR */
+export function dcrStepLabel(s) {
+  if (s.action === 'submit') return 'ผู้จัดทำส่งคำขอ'
+  if (s.action === 'resubmit') return 'ผู้จัดทำส่งใหม่'
+  if (s.action === 'cancel') return 'ยกเลิกคำขอ'
+  const who = s.step === 'review' ? 'ผู้ตรวจสอบ' : 'ผู้อนุมัติ'
+  if (s.action === 'return') return `${who}: ตีกลับ`
+  return s.step === 'review' ? 'ผู้ตรวจสอบ: ผ่าน' : 'ผู้อนุมัติ: อนุมัติ — มีผลบังคับใช้'
 }
