@@ -610,6 +610,39 @@
   .ov-ic { @apply text-[20px] flex-shrink-0; }
   .ov-name { @apply flex-1 text-[13.5px] min-w-0 break-words; }
   .ov-btns { @apply flex gap-[7px] flex-shrink-0; }
+
+  /* ---- วัตถุประสงค์คุณภาพ (Kpi.svelte) ---- */
+  .kpi-table td { vertical-align: middle; }
+  .fill-ok { fill: theme(colors.ok.DEFAULT); }
+  .fill-danger { fill: theme(colors.danger.DEFAULT); }
+
+  /* ---- ความเสี่ยงและโอกาส (Risks.svelte) ---- */
+  .heat { display: grid; grid-template-columns: 18px repeat(5, 40px); gap: 3px; }
+  .heat-lab { @apply text-[11px] text-mut flex items-center justify-center; }
+  .heat-axis-y { @apply text-[11.5px] text-mut text-center; writing-mode: vertical-rl; transform: rotate(180deg); }
+  .heat-cell { @apply h-10 rounded font-bold text-[14px] text-ink border-0 cursor-pointer; transition: transform .1s; }
+  .heat-cell:hover { transform: scale(1.06); }
+  .heat-cell.sel { outline: 2px solid theme(colors.brand.DEFAULT); outline-offset: 1px; }
+  .h-high { background: #f8c9c4; }
+  .h-medium { background: #fde7b0; }
+  .h-low { background: #cfeed8; }
+  .heat-dot { @apply inline-block w-2.5 h-2.5 rounded-sm align-middle; }
+  .lvl-badge { @apply text-[11px] font-bold px-2 py-px rounded-[20px] text-ink whitespace-nowrap; }
+
+  /* ---- งานของฉัน (Inbox.svelte) ---- */
+  .bell { @apply relative inline-flex items-center justify-center w-9 h-9 rounded-full bg-white text-brand cursor-pointer; border: 1px solid theme(colors.line); }
+  .bell:hover { @apply border-brand-600; }
+  .bell.hot { @apply text-danger; }
+  .bell-n { @apply absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-white text-[10.5px] font-bold flex items-center justify-center; }
+  .bell-bg { @apply fixed inset-0 z-40; }
+  .bell-panel { @apply fixed right-4 top-16 z-50 w-[420px] max-w-[calc(100vw-24px)] bg-white rounded-lg border border-line overflow-hidden text-ink; box-shadow: 0 12px 40px rgba(0,0,0,.18); }
+  .bell-list { @apply max-h-[60vh] overflow-y-auto; }
+  .bell-sec { @apply px-3 pt-2 pb-1 text-[11.5px] font-bold text-mut; }
+  .bell-sec.l-overdue { @apply text-danger; }
+  .bell-sec.l-soon { @apply text-warn; }
+  .bell-item { @apply w-full flex items-start gap-2 px-3 py-2 text-left bg-white border-0 cursor-pointer font-sans text-ink; border-top: 1px solid #f1f3f6; }
+  .bell-item:hover { background: #f3f6fb; }
+  .bell-kind { @apply text-[10.5px] font-bold px-1.5 py-px rounded bg-brand-light text-brand whitespace-nowrap mt-0.5; }
 }
 
 /* ---- responsive: sidebar becomes topbar on narrow screens ---- */

@@ -238,6 +238,44 @@ pub async fn evaluate(st: &S) -> Value {
             format!("งานเลยกำหนด {} งาน", late.len()), late);
     }
 
+    // ---------- วัตถุประสงค์คุณภาพและการวัด (6.2, 9.1) ----------
+    if let Some(c) = &client {
+        let objs = crate::kpi::active(c).await;
+        let no_owner: Vec<String> = objs.iter().filter(|o| o["ownerCode"].as_str().unwrap_or("").is_empty()).filter_map(|o| o["code"].as_str().map(String::from)).collect();
+        cs.check("kpi-defined", "มีวัตถุประสงค์คุณภาพที่วัดได้ พร้อมผู้รับผิดชอบ", "วัตถุประสงค์", "6.2", !objs.is_empty() && no_owner.is_empty(), objs.is_empty(),
+            if objs.is_empty() { "ยังไม่มีวัตถุประสงค์คุณภาพ/KPI ในระบบ (เมนู วัตถุประสงค์คุณภาพ) — ISO 9001 ข้อ 6.2 กำหนดให้เก็บเป็นเอกสาร".into() }
+            else if no_owner.is_empty() { format!("{} ตัวชี้วัดที่ใช้งาน", objs.len()) }
+            else { format!("{} ตัวชี้วัดยังไม่มีผู้รับผิดชอบ", no_owner.len()) }, no_owner);
+        let missing: Vec<String> = objs.iter().filter(|o| o["missing"] == json!(true))
+            .map(|o| format!("{} ({})", o["code"].as_str().unwrap_or(""), o["expectedPeriod"].as_str().unwrap_or(""))).collect();
+        cs.check("kpi-results", "บันทึกผลตัวชี้วัดครบตามรอบ", "วัตถุประสงค์", "9.1", !objs.is_empty() && missing.is_empty(), false,
+            if objs.is_empty() { "ยังไม่มีตัวชี้วัด".into() }
+            else if missing.is_empty() { "ทุกตัวชี้วัดบันทึกผลงวดล่าสุดแล้ว".into() }
+            else { format!("ค้างบันทึกผลเกิน {} วันหลังสิ้นงวด {} ตัวชี้วัด", crate::kpi::GRACE_DAYS, missing.len()) }, missing);
+        let off: Vec<String> = objs.iter().filter(|o| o["offTargetNoCar"].as_array().map(|a| !a.is_empty()).unwrap_or(false))
+            .filter_map(|o| o["code"].as_str().map(String::from)).collect();
+        cs.check("kpi-offtarget", "ผลที่ไม่ถึงเป้ามีการแก้ไข (CAR)", "วัตถุประสงค์", "10.2", off.is_empty(), false,
+            if off.is_empty() { "ไม่มีผลที่ไม่ถึงเป้าค้างโดยไม่มีการแก้ไข".into() } else { format!("{} ตัวชี้วัดไม่ถึงเป้าแต่ยังไม่เปิด CAR", off.len()) }, off);
+    }
+
+    // ---------- ความเสี่ยงและโอกาส (6.1) ----------
+    if let Some(c) = &client {
+        let items = crate::risks::open_items(c).await;
+        let risks_n = items.iter().filter(|r| r["kind"] == json!("risk")).count();
+        let opps_n = items.len() - risks_n;
+        let refs = |f: &dyn Fn(&Value) -> bool| -> Vec<String> { items.iter().filter(|r| f(r)).filter_map(|r| r["refNo"].as_str().map(String::from)).collect() };
+        cs.check("risk-register", "มีทะเบียนความเสี่ยงและโอกาส", "ความเสี่ยง", "6.1", risks_n > 0 && opps_n > 0, false,
+            if items.is_empty() { "ยังไม่มีทะเบียนความเสี่ยงและโอกาสในระบบ (เมนู ความเสี่ยงและโอกาส)".into() }
+            else { format!("ความเสี่ยง {risks_n} · โอกาส {opps_n} รายการที่ยังติดตาม{}", if opps_n == 0 { " — ข้อ 6.1 ต้องพิจารณาโอกาสด้วย" } else { "" }) }, vec![]);
+        let weak = refs(&|r| r["gaps"].as_array().map(|g| !g.is_empty()).unwrap_or(false));
+        cs.check("risk-plan", "ความเสี่ยงระดับกลาง–สูงมีแผนจัดการและผู้รับผิดชอบ", "ความเสี่ยง", "6.1", weak.is_empty(), false,
+            format!("{} รายการยังขาดผู้รับผิดชอบ/แนวทาง/แผนจัดการ", weak.len()), weak);
+        let overdue = refs(&|r| r["reviewOverdue"] == json!(true));
+        let high_overdue = items.iter().any(|r| r["reviewOverdue"] == json!(true) && r["level"] == json!("high"));
+        cs.check("risk-review", "ทบทวนความเสี่ยงและประสิทธิผลของการจัดการตามกำหนด", "ความเสี่ยง", "6.1", overdue.is_empty(), high_overdue,
+            if overdue.is_empty() { "ไม่มีรายการเลยกำหนดทบทวน".into() } else { format!("เลยกำหนดทบทวน {} รายการ{}", overdue.len(), if high_overdue { " (มีระดับสูง)" } else { "" }) }, overdue);
+    }
+
     // ---------- หลักฐานตามข้อกำหนด ----------
     let catalog: Vec<Value> = st.clauses["clauses"].as_array().cloned().unwrap_or_default();
     let mut clause_out = vec![];

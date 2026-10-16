@@ -892,17 +892,24 @@ pub async fn record_amend(State(st): State<S>, Extension(u): Extension<AuthUser>
 
 pub async fn pending(State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
     let client = match st.db.get().await { Ok(c) => c, Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
+    match pending_items(&client, &u).await {
+        Ok(out) => Json(json!({ "count": out.len(), "items": out })).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
+/// แบบฟอร์มที่รอผู้ใช้นี้ตรวจสอบ/อนุมัติ (ไม่รวมใบที่ตนจัดทำ ยกเว้น admin)
+pub(crate) async fn pending_items(client: &impl deadpool_postgres::GenericClient, u: &AuthUser) -> Result<Vec<Value>, String> {
     let sql = format!("SELECT {RCOLS} FROM form_records WHERE status IN ('review','approve') ORDER BY updated_at");
-    let rows = match client.query(&sql, &[]).await { Ok(r) => r, Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()) };
-    let out: Vec<Value> = rows.iter().filter_map(|r| {
+    let rows = client.query(&sql, &[]).await.map_err(|e| e.to_string())?;
+    Ok(rows.iter().filter_map(|r| {
         let item = record_summary(r);
         let status = item["status"].as_str().unwrap_or("");
         let by = item["preparedBy"].as_str().unwrap_or("");
         if !is_admin(&u.role) && by == u.emp_code { return None; }
         let ok = (status == "review" && can_review(&u.role)) || (status == "approve" && can_approve(&u.role));
         ok.then_some(item)
-    }).collect();
-    Json(json!({ "count": out.len(), "items": out })).into_response()
+    }).collect())
 }
 
 pub async fn training_list(State(st): State<S>, Query(q): Query<HashMap<String, String>>) -> Response {

@@ -45,6 +45,8 @@
     if (isDoc(code)) dispatch('open', code)
     else if (/^(CAR|DAR|PAR)-/.test(code)) dispatch('goto', { tab: 'act' })
     else if (/^DCR-/.test(code)) dispatch('goto', { tab: 'dcr' })
+    else if (/^KPI-/.test(code)) dispatch('goto', { tab: 'kpi', ref: code.split(' ')[0] })
+    else if (/^(RSK|OPP)-/.test(code)) dispatch('goto', { tab: 'risk', ref: code })
     else dispatch('goto', { tab: 'forms' })
   }
 </script>

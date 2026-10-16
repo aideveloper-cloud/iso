@@ -21,6 +21,13 @@ services:
       ONLYOFFICE_INTERNAL_URL: http://iso-office
       ISO_INTERNAL_URL: http://iso-api:8085
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:?ตั้ง ONLYOFFICE_JWT_SECRET ใน .env}
+      # อีเมลสรุปงานรายวัน (เมนูกระดิ่ง → ตั้งค่าอีเมล) — ไม่ตั้ง SMTP_HOST ใน .env = ปิด ใช้เฉพาะในระบบ
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      APP_URL: https://iso.kgarden.co.th
     volumes:
       - iso-data:/data
     networks: [kgf]

@@ -23,9 +23,12 @@ mod doccontrol;
 mod editsession;
 mod eform;
 mod internalaudit;
+mod kpi;
 mod mreview;
+mod notify;
 mod pdfview;
 mod readiness;
+mod risks;
 mod training;
 
 pub(crate) struct AppState {
@@ -188,6 +191,9 @@ async fn init_db(pool: &Pool) {
                 client.batch_execute(acks::SCHEMA).await.expect("สร้างตารางการรับทราบเอกสารไม่สำเร็จ");
                 client.batch_execute(training::SCHEMA).await.expect("สร้างตาราง training matrix ไม่สำเร็จ");
                 client.batch_execute(editsession::SCHEMA).await.expect("สร้างตารางรอบแก้ไขเอกสารไม่สำเร็จ");
+                client.batch_execute(kpi::SCHEMA).await.expect("สร้างตารางวัตถุประสงค์คุณภาพไม่สำเร็จ");
+                client.batch_execute(risks::SCHEMA).await.expect("สร้างตารางทะเบียนความเสี่ยงไม่สำเร็จ");
+                client.batch_execute(notify::SCHEMA).await.expect("ปรับตารางการแจ้งเตือนไม่สำเร็จ");
                 return;
             }
             Err(e) => {
@@ -920,6 +926,7 @@ async fn main() {
             }
         });
     }
+    tokio::spawn(notify::digest_loop(state.clone()));
 
     let app = Router::new()
         .route("/api/health", get(health))
@@ -954,6 +961,19 @@ async fn main() {
         .route("/api/actions/:id", get(capa::get).put(capa::update))
         .route("/api/actions/:id/act", axum::routing::post(capa::act))
         .route("/api/audit-log", get(audittrail::list))
+        .route("/api/kpi", get(kpi::list).post(kpi::create))
+        .route("/api/kpi/:id", axum::routing::put(kpi::update))
+        .route("/api/kpi/:id/retire", axum::routing::post(kpi::retire))
+        .route("/api/kpi/:id/results", axum::routing::post(kpi::record))
+        .route("/api/kpi/:id/car", axum::routing::post(kpi::raise_car))
+        .route("/api/risks", get(risks::list).post(risks::create))
+        .route("/api/risks/:id", get(risks::get).put(risks::update))
+        .route("/api/risks/:id/review", axum::routing::post(risks::review))
+        .route("/api/risks/:id/act", axum::routing::post(risks::act))
+        .route("/api/risks/:id/par", axum::routing::post(risks::raise_par))
+        .route("/api/notify", get(notify::list))
+        .route("/api/notify/settings", axum::routing::put(notify::settings))
+        .route("/api/notify/test", axum::routing::post(notify::test))
         .route("/api/training/matrix", get(training::matrix))
         .route("/api/training/history/:code", get(training::history))
         .route("/api/training/reqs", axum::routing::post(training::create_req))

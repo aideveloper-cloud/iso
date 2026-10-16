@@ -234,12 +234,17 @@ pub async fn download_name(st: &S, code: &str, v: i64, filename: &str) -> String
 
 /// จำนวนคำขอที่รอผู้ใช้คนนี้ตรวจสอบ/อนุมัติ
 pub async fn pending_count(st: &S, u: &AuthUser) -> i64 {
-    let Ok(c) = st.db.get().await else { return 0 };
-    let Ok(rows) = c.query(&format!("SELECT {DCOLS} FROM doc_changes WHERE status IN ('review','approve')"), &[]).await else { return 0 };
-    rows.iter().filter(|r| {
-        let f = can_flags(u, &change_json(r));
+    pending_items(st, u).await.len() as i64
+}
+
+/// คำขอที่รอผู้ใช้นี้ตรวจสอบ/อนุมัติ (ใช้กับตัวนับเมนูและงานของฉัน)
+pub async fn pending_items(st: &S, u: &AuthUser) -> Vec<Value> {
+    let Ok(c) = st.db.get().await else { return vec![] };
+    let Ok(rows) = c.query(&format!("SELECT {DCOLS} FROM doc_changes WHERE status IN ('review','approve') ORDER BY updated_at"), &[]).await else { return vec![] };
+    rows.iter().map(change_json).filter(|ch| {
+        let f = can_flags(u, ch);
         f["review"] == json!(true) || f["approve"] == json!(true)
-    }).count() as i64
+    }).collect()
 }
 
 // ---------- ไฟล์ฉบับร่าง ----------

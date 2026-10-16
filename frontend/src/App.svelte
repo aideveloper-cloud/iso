@@ -13,6 +13,9 @@
   import Acks from './Acks.svelte'
   import TrainingMatrix from './TrainingMatrix.svelte'
   import Users from './Users.svelte'
+  import Kpi from './Kpi.svelte'
+  import Risks from './Risks.svelte'
+  import Inbox from './Inbox.svelte'
   import AuditTrail from './AuditTrail.svelte'
   import Forms from './Forms.svelte'
   import Login from './Login.svelte'
@@ -22,7 +25,7 @@
   import FilePreview from './FilePreview.svelte'
   import Icon from './Icon.svelte'
 
-  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm']
+  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm', 'kpi', 'risk']
   let tab = 'dash'
   let docs = [], overview = []
   let openCode = null
@@ -41,6 +44,8 @@
   let pending = 0
   let checkinToken = ''
   let formLaunch = null
+  let focus = { kpi: '', risk: '' } // เปิดรายการเฉพาะเมื่อมาจากงานของฉัน/เตรียม Audit
+  let inboxRefresh = 0
 
   const NAV = [
     { group: 'ภาพรวม', items: [['dash', 'dashboard', 'แดชบอร์ด']] },
@@ -56,6 +61,8 @@
       ['forms', 'clipboard-list', 'บันทึกแบบฟอร์ม'],
       ['act', 'clipboard-check', 'CAR / DAR / PAR'],
       ['ia', 'list-checks', 'ตรวจติดตามภายใน'],
+      ['risk', 'shield-alert', 'ความเสี่ยงและโอกาส'],
+      ['kpi', 'target', 'วัตถุประสงค์คุณภาพ (KPI)'],
       ['mr', 'building', 'ทบทวนฝ่ายบริหาร'],
       ['audit', 'list-checks', 'เตรียม Audit'],
     ] },
@@ -83,6 +90,7 @@
     refreshPending()
   }
   function refreshPending() {
+    inboxRefresh += 1
     api.me().then((m) => { pending = m.pending || 0; pendingDocs = m.pendingDocs || 0; pendingAcks = m.pendingAcks || 0 }).catch(() => {})
   }
   async function logout() {
@@ -127,7 +135,14 @@
   function onGoto(e) {
     const d = e.detail || {}
     setJump({ type: d.type || '', dept: d.dept || '', unreg: !!d.unreg, section: d.section || '' })
+    if (d.ref && (d.tab === 'kpi' || d.tab === 'risk')) focus = { ...focus, [d.tab]: d.ref }
     goTab(d.tab)
+  }
+  /** คลิกงานในกระดิ่ง: ไปหน้าที่เกี่ยวข้อง (KPI/ความเสี่ยงเปิดรายการนั้นทันที) — เปลี่ยน key เพื่อโหลดหน้าใหม่แม้อยู่หน้าเดิม */
+  let tabKey = 0
+  function onInbox(e) {
+    onGoto(e)
+    tabKey += 1
   }
 
   // ---- ค้นหาส่วนกลาง (ทะเบียน + ภาพรวมองค์กร) ----
@@ -206,7 +221,7 @@
       {#each nav as g}
         <div class="navgroup-label">{g.group}</div>
         {#each g.items as [k, ic, label]}
-          <button class={tab === k ? 'active' : ''} title={label} on:click={() => goTab(k)}>
+          <button class={tab === k ? 'active' : ''} title={label} on:click={() => { focus = { kpi: '', risk: '' }; goTab(k) }}>
             <span class="ic"><Icon name={ic} size={18} /></span><span class="lb">{label}{#if k === 'forms' && pending} ({pending}){/if}{#if k === 'dcr' && pendingDocs} ({pendingDocs}){/if}{#if k === 'ack' && pendingAcks} ({pendingAcks}){/if}</span>
           </button>
         {/each}
@@ -270,7 +285,10 @@
           </div>
         {/if}
         {#if me}
-          <div class="note m-0 whitespace-nowrap">{me.name}<button class="mbtn gh" on:click={logout}>ออก</button></div>
+          <div class="flex items-center gap-2">
+            <Inbox refresh={inboxRefresh} on:go={onInbox} />
+            <div class="note m-0 whitespace-nowrap">{me.name}<button class="mbtn gh" on:click={logout}>ออก</button></div>
+          </div>
         {/if}
       </div>
     </header>
@@ -303,6 +321,10 @@
         <AuditTrail {me} />
       {:else if tab === 'users'}
         <Users {me} />
+      {:else if tab === 'kpi'}
+        {#key tabKey}<Kpi {me} focus={focus.kpi} on:goto={onGoto} />{/key}
+      {:else if tab === 'risk'}
+        {#key tabKey}<Risks {me} focus={focus.risk} on:goto={onGoto} />{/key}
       {:else if tab === 'act'}
         <Actions {docs} {me} />
       {:else if tab === 'audit'}

@@ -404,6 +404,45 @@ async fn system_records(st: &S, c: &impl deadpool_postgres::GenericClient, meeti
             format!("รับทราบแล้ว {}/{} · เลยกำหนด {overdue} คำขอ", ak["acknowledged"], ak["total"]), vec![ev("ACK", "เมนู การรับทราบเอกสาร")]));
     }
     out.push(("resources".into(), resources));
+
+    // c2) วัตถุประสงค์คุณภาพ: ผลงวดล่าสุดของทุกตัวชี้วัดที่ใช้งาน (metric → ประเด็น "ไม่ถึงเป้า/แนวโน้มแย่ลง" อัตโนมัติ)
+    let mut objectives = vec![];
+    for o in crate::kpi::active(c).await {
+        let code = s(&o, "code");
+        let latest = &o["latest"];
+        let status = if latest.is_null() { "attention" } else if latest["met"] == json!(true) && o["missing"] != json!(true) { "good" }
+            else if o["offTargetNoCar"].as_array().map(|a| !a.is_empty()).unwrap_or(false) { "critical" } else { "attention" };
+        let mut notes = vec![];
+        if latest.is_null() { notes.push("ยังไม่มีผลที่บันทึก".to_string()); }
+        else { notes.push(format!("งวด {} ผล {}{} · อัตราบรรลุ {}% ({}/{} งวด)", s(latest, "period"), latest["actual"], s(&o, "unit"), o["rate"], o["achieved"], o["measured"])); }
+        if o["missing"] == json!(true) { notes.push(format!("ค้างบันทึกงวด {}", s(&o, "expectedPeriod"))); }
+        let cars: Vec<String> = o["results"].as_array().cloned().unwrap_or_default().iter().filter_map(|r| r["carRef"].as_str().filter(|x| !x.is_empty()).map(String::from)).collect();
+        let mut evs = vec![ev(&code, "วัตถุประสงค์คุณภาพ (เมนู วัตถุประสงค์คุณภาพ)")];
+        evs.extend(cars.iter().map(|x| ev(x, "CAR จากผลไม่ถึงเป้า")));
+        let mut r = rec(format!("SYS-{code}"), format!("{code} {}", s(&o, "title")), s(&o, "ownerName"), status, notes.join(" · "), evs);
+        if !latest.is_null() {
+            r["metric"] = json!({ "actual": latest["actual"], "target": latest["target"], "direction": o["direction"], "unit": o["unit"],
+                "previous": o["previous"].get("actual").cloned().unwrap_or(Value::Null) });
+        }
+        objectives.push(r);
+    }
+    out.push(("objectives".into(), objectives));
+
+    // e) ความเสี่ยงและโอกาส: รายการที่ยังติดตาม + ผลทบทวนประสิทธิผลล่าสุด
+    let mut risks = vec![];
+    for x in crate::risks::open_items(c).await {
+        let refno = s(&x, "refNo");
+        let high = x["level"] == json!("high");
+        let status = if x["reviewOverdue"] == json!(true) && high { "critical" }
+            else if x["reviewOverdue"] == json!(true) || x["effectiveness"] == json!("not_effective") || (high && x["kind"] == json!("risk")) { "attention" } else { "good" };
+        let eff = match s(&x, "effectiveness").as_str() { "effective" => "มีประสิทธิผล", "not_effective" => "ไม่มีประสิทธิผล", _ => "ยังไม่ประเมิน" };
+        let mut evs = vec![ev(&refno, "ทะเบียนความเสี่ยงและโอกาส")];
+        if !s(&x, "actionRef").is_empty() { evs.push(ev(&s(&x, "actionRef"), "PAR มาตรการจัดการ")); }
+        risks.push(rec(format!("SYS-{refno}"), format!("{refno} {}", s(&x, "title")), s(&x, "ownerName"), status,
+            format!("ระดับ{} ({}×{}) · ประสิทธิผลการจัดการ: {eff} · ทบทวนครั้งถัดไป {}{}", crate::risks::level_th(&s(&x, "level")), x["likelihood"], x["impact"], s(&x, "reviewDue"),
+                if x["reviewOverdue"] == json!(true) { " (เลยกำหนด)" } else { "" }), evs));
+    }
+    out.push(("risks".into(), risks));
     out
 }
 

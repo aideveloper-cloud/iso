@@ -34,6 +34,13 @@ services:
       DATABASE_URL: host=db port=5432 user=iso password=${DB_PASSWORD} dbname=iso
       BACKUP_PG_CONTAINER: ""   # pg_dump ต่อฐานข้อมูลตรง (ไม่มี docker ใน container)
       GOTENBERG_URL: http://pdf:3000
+      # อีเมลสรุปงานรายวัน (เมนูกระดิ่ง → ตั้งค่าอีเมล) — ไม่ตั้ง SMTP_HOST ใน .env = ปิด ใช้เฉพาะในระบบ
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      APP_URL: https://iso.kgarden.co.th
     volumes:
       - ${DATA_DIR:-/opt/iso/data}:/data
 
