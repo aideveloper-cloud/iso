@@ -312,6 +312,15 @@ pub async fn decide(Path(id): Path<i64>, State(st): State<S>, Extension(u): Exte
     if !matches!(b.decision.as_str(), "accepted" | "rejected" | "open") { return err(StatusCode::BAD_REQUEST, "การตัดสินใจไม่ถูกต้อง"); }
     if u.role == "viewer" { return err(StatusCode::FORBIDDEN, "บัญชีอ่านอย่างเดียวตัดสินใจไม่ได้"); }
     let Ok(c) = st.db.get().await else { return db_err() };
+    // ข้อแนะนำของ DCR ตัดสินได้เฉพาะผู้ที่ลงนามคำขอนั้นได้ (ผู้ตรวจสอบขึ้นไป) หรือผู้จัดทำ — กันคนอื่นมาเปลี่ยนการตัดสินใจของผู้ตรวจ
+    let Ok(Some(r)) = c.query_opt(
+        "SELECT r.kind, COALESCE((SELECT d.prepared_by FROM doc_changes d WHERE r.kind='dcr' AND d.id::text=r.subject), '')
+         FROM ai_suggestions s JOIN ai_reviews r ON r.id=s.review_id WHERE s.id=$1", &[&id],
+    ).await else { return err(StatusCode::NOT_FOUND, "ไม่พบข้อแนะนำ") };
+    let (kind, preparer): (String, String) = (r.get(0), r.get(1));
+    if kind == "dcr" && !eform::can_review(&u.role) && preparer != u.emp_code {
+        return err(StatusCode::FORBIDDEN, "ตัดสินข้อแนะนำของคำขอนี้ได้เฉพาะผู้ตรวจสอบ/ผู้อนุมัติหรือผู้จัดทำคำขอ");
+    }
     let (by, name, at) = if b.decision == "open" { (String::new(), String::new(), String::new()) } else { (u.emp_code.clone(), u.name.clone(), now_iso()) };
     match c.query_opt(
         &format!("UPDATE ai_suggestions SET status=$2,decided_by=$3,decided_name=$4,decided_at=$5 WHERE id=$1 RETURNING {SCOLS}"),
