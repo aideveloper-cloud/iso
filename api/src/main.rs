@@ -17,6 +17,7 @@ use std::{collections::HashMap, fs, net::TcpStream, path::PathBuf, sync::{Arc, M
 use tokio_postgres::NoTls;
 
 mod acks;
+mod aiassist;
 mod audittrail;
 mod calibration;
 mod capa;
@@ -202,6 +203,7 @@ async fn init_db(pool: &Pool) {
                 client.batch_execute(suppliers::SCHEMA).await.expect("สร้างตารางผู้ขายและการประเมินไม่สำเร็จ");
                 client.batch_execute(notify::SCHEMA).await.expect("ปรับตารางการแจ้งเตือนไม่สำเร็จ");
                 client.batch_execute(revcontrol::SCHEMA).await.expect("สร้างตารางสำเนาเอกสารไม่สำเร็จ");
+                client.batch_execute(aiassist::SCHEMA).await.expect("สร้างตารางผู้ช่วย AI ไม่สำเร็จ");
                 return;
             }
             Err(e) => {
@@ -968,6 +970,12 @@ async fn main() {
         .route("/api/copies/:id/pdf", get(revcontrol::copy_pdf))
         .route("/api/copies/:id/close", axum::routing::post(revcontrol::close))
         .route("/api/revcontrol", get(revcontrol::report))
+        .route("/api/ai/status", get(aiassist::status))
+        .route("/api/ai/reviews", get(aiassist::latest))
+        .route("/api/ai/reviews/:id/apply", axum::routing::post(aiassist::apply))
+        .route("/api/ai/docs/:code/review", axum::routing::post(aiassist::review_doc))
+        .route("/api/ai/changes/:id/review", axum::routing::post(aiassist::review_change))
+        .route("/api/ai/suggestions/:id/decide", axum::routing::post(aiassist::decide))
         .route("/api/stats", get(stats))
         .route("/api/readiness", get(readiness::get))
         .route("/api/readiness/runs", get(readiness::runs).post(readiness::save_run))

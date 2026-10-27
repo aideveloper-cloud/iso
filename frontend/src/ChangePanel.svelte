@@ -9,6 +9,7 @@
   import DecisionDialog from './DecisionDialog.svelte'
   import EditActions from './EditActions.svelte'
   import OfficeEdit from './OfficeEdit.svelte'
+  import AiPanel from './AiPanel.svelte'
   import Icon from './Icon.svelte'
 
   export let change // รายละเอียดจาก /api/changes/:id (มี steps, can)
@@ -24,6 +25,10 @@
   let gEdit = false // แก้ฉบับร่างที่ถูกตีกลับในตัวแก้ไขบนเว็บ (ONLYOFFICE)
   let uploadInput
   let err = ''
+  // ผู้ช่วย AI สำหรับผู้ตรวจ: ข้อที่ "ทำตาม" ใส่เป็นความเห็นเริ่มต้นตอนลงนามผ่าน/ตีกลับ (แก้ได้ก่อนลงนาม)
+  let aiEnabled = false, aiAccepted = []
+  api.aiStatus().then((s) => (aiEnabled = !!s?.enabled)).catch(() => {})
+  $: aiComment = aiAccepted.map((s) => `- ${s.issue}${s.suggestion ? ' — ' + s.suggestion : ''}`).join('\n')
 
   $: np = noteParts(change)
   $: can = change?.can || {}
@@ -176,6 +181,13 @@
     {/if}
   </div>
 
+  {#if aiEnabled && ['review', 'approve', 'returned'].includes(change.status)}
+    <details class="dcr-ai" open={can.review || can.approve}>
+      <summary class="dcr-sub cursor-pointer">ผู้ช่วย AI สำหรับผู้ตรวจ{#if aiAccepted.length} <span class="mut">— ทำตาม {aiAccepted.length} ข้อ (ใส่ในความเห็นตอนลงนาม)</span>{/if}</summary>
+      {#key change.id}<AiPanel kind="dcr" subject={change.id} {me} bind:accepted={aiAccepted} />{/key}
+    </details>
+  {/if}
+
   <h4 class="dcr-sub">ขั้นตอนการลงนาม</h4>
   <table class="chg-table">
     <thead><tr><th>ขั้นตอน</th><th>ผู้ลงนาม</th><th>วันเวลา</th><th>ความเห็น</th><th>SHA-256 ไฟล์ที่ลงนาม</th></tr></thead>
@@ -228,6 +240,7 @@
     withPin={!dd.noPin}
     confirmLabel={dd.label}
     danger={!!dd.danger}
+    initialComment={deciding === 'cancel' ? '' : aiComment}
     on:confirm={onDecide}
     on:cancel={() => (deciding = null)}
   />

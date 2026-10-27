@@ -16,7 +16,7 @@ chrono = "0.4"
 sha2 = "0.10"
 argon2 = "0.5" # แฮช PIN (Argon2id + salt ต่อคน) และสุ่ม token ด้วย OsRng
 rand_core = { version = "0.6", features = ["getrandom"] } # เปิด OsRng (CSPRNG ของระบบปฏิบัติการ)
-reqwest = { version = "0.12", default-features = false, features = ["multipart"] } # เรียก Gotenberg (แปลง Word/Excel → PDF) ผ่าน HTTP ภายใน
+reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls"] } # เรียก Gotenberg (แปลง Word/Excel → PDF) ผ่าน HTTP ภายใน และ OpenAI (ผู้ช่วย AI) ผ่าน HTTPS
 qrcode = { version = "0.14", default-features = false }
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1", "tokio1-rustls-tls"] } # อีเมลสรุปงานรายวัน (เปิดเมื่อตั้ง SMTP_HOST)
 lopdf = { version = "0.42", default-features = false } # ประทับตราสำเนาเอกสาร (เลขสำเนา + QR ตรวจ Rev.) ลงทุกหน้าของ PDF

@@ -69,6 +69,13 @@ export const api = {
   copies: (q) => send('/api/copies?' + new URLSearchParams(q || {})).then((r) => r.json()),
   copyIssue: (code, payload) => postJson(`/api/docs/${encodeURIComponent(code)}/copies`, payload),
   copyClose: (id, result, note) => postJson(`/api/copies/${id}/close`, { result, note }),
+  // ผู้ช่วย AI (OpenAI ฝั่งเซิร์ฟเวอร์) — เสนอแนะ ผู้ใช้เลือกทำตาม/ไม่ทำตามเอง · ดู aiassist.rs
+  aiStatus: () => send('/api/ai/status').then((r) => r.json()),
+  aiLatest: (kind, subject) => send('/api/ai/reviews?' + new URLSearchParams({ kind, subject })).then((r) => r.json()),
+  aiReviewDoc: (code) => postJson(`/api/ai/docs/${encodeURIComponent(code)}/review`, {}),
+  aiReviewChange: (id) => postJson(`/api/ai/changes/${id}/review`, {}),
+  aiDecide: (id, decision) => postJson(`/api/ai/suggestions/${id}/decide`, { decision }),
+  aiApply: (reviewId, ids) => postJson(`/api/ai/reviews/${reviewId}/apply`, { ids }),
   verify: (token) => fetch('/api/public/verify/' + encodeURIComponent(token)).then(async (r) => ({ ok: r.ok, body: await r.json().catch(() => ({})) })),
   docObsolete: (code, reason, pin) => postJson(`/api/docs/${encodeURIComponent(code)}/obsolete`, { reason, pin }),
   docReinstate: (code, reason, pin) => postJson(`/api/docs/${encodeURIComponent(code)}/reinstate`, { reason, pin }),

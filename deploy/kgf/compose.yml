@@ -28,6 +28,10 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
       APP_URL: https://iso.kgarden.co.th
+      # ผู้ช่วย AI (แนะนำการแก้เอกสาร / ช่วยผู้ตรวจ DCR) — ไม่ตั้ง OPENAI_API_KEY ใน .env = ปิดฟีเจอร์ · คีย์อยู่ฝั่ง API เท่านั้น
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     volumes:
       - iso-data:/data
     networks: [kgf]

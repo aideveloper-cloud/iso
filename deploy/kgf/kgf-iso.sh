@@ -20,8 +20,10 @@ FONTS_DIR=/c/Windows/Fonts
 CF_DIR=~/.cloudflared
 CF_CONF="$CF_DIR/iso-config.yml"
 
-R(){ ssh -o ConnectTimeout=5 "$SERVER" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; $1"; }
-RI(){ ssh -o ConnectTimeout=5 "$SERVER" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; $1"; }   # รับ stdin
+# บังคับ docker context ของ Colima — บน Mac มี Docker Desktop ด้วย ถ้า context ปัจจุบันถูกสลับไป จะ deploy ผิดที่ (ไม่มี network kgf, พอร์ตชน)
+DCTX=${KGF_DOCKER_CONTEXT:-colima}
+R(){ ssh -o ConnectTimeout=5 "$SERVER" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH DOCKER_CONTEXT=$DCTX; $1"; }
+RI(){ ssh -o ConnectTimeout=5 "$SERVER" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH DOCKER_CONTEXT=$DCTX; $1"; }   # รับ stdin
 COMPOSE="cd $DIR && docker compose -p iso"
 # เขียนข้อมูลจาก stdin (tar.gz) ลง named volume โดยล้างของเดิมก่อน
 to_volume(){ RI "docker run --rm -i -v iso_$1:/v alpine sh -c 'find /v -mindepth 1 -delete && tar xzf - -C /v'"; }

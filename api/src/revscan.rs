@@ -66,7 +66,7 @@ fn xml_text(xml: &str) -> String {
     out
 }
 
-fn push_unescaped(out: &mut String, s: &str) {
+pub(crate) fn push_unescaped(out: &mut String, s: &str) {
     if !s.contains('&') { out.push_str(s); return; }
     let mut rest = s;
     while let Some(i) = rest.find('&') {
@@ -86,8 +86,35 @@ fn push_unescaped(out: &mut String, s: &str) {
     out.push_str(rest);
 }
 
+/// ข้อความทั้งเอกสารสำหรับผู้ช่วย AI: หัว/ท้ายกระดาษ + ชื่อชีต + เนื้อหา (ตัดที่ max ตัวอักษร)
+pub fn doc_text(bytes: &[u8], ext: &str, max: usize) -> Result<String, String> {
+    let (head, body, names) = match ext {
+        "docx" => { let (h, b) = docx_text(bytes)?; (h, b, String::new()) }
+        "xlsx" => xlsx_text(bytes)?,
+        "xls" => { let (b, n) = xls_text(bytes)?; (clean_header_footer(&xls_header_footer(bytes)), b, n) }
+        _ => return Err("ไฟล์ชนิดนี้อ่านเนื้อหาไม่ได้ (รองรับ .docx .xlsx .xls)".into()),
+    };
+    let squeeze = |t: &str| t.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("
+");
+    let mut out = String::new();
+    if !head.trim().is_empty() { out.push_str("[หัว/ท้ายกระดาษ]
+"); out.push_str(&squeeze(&head)); out.push_str("
+
+"); }
+    if !names.trim().is_empty() { out.push_str("[ชื่อชีต]
+"); out.push_str(&squeeze(&names)); out.push_str("
+
+"); }
+    out.push_str("[เนื้อหา]
+");
+    out.push_str(&squeeze(&body));
+    if out.chars().count() > max { out = out.chars().take(max).collect::<String>() + "
+…(ตัดเนื้อหาส่วนที่เหลือ)"; }
+    Ok(out)
+}
+
 /// แก้ความยาว comment ใน End of Central Directory ให้ตรงกับไฟล์ — บางไฟล์ระบุยาวเกินจริง (Excel/Python เปิดได้ แต่ zip crate ปฏิเสธ)
-fn repair_eocd(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn repair_eocd(bytes: &[u8]) -> Vec<u8> {
     let mut b = bytes.to_vec();
     let start = b.len().saturating_sub(22 + 65_535);
     if let Some(i) = (start..b.len().saturating_sub(21)).rev().find(|&i| b[i..i + 4] == [0x50, 0x4b, 0x05, 0x06]) {

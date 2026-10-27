@@ -11,9 +11,11 @@
   export let withPin = true
   export let confirmLabel = 'ยืนยัน'
   export let danger = false
+  /** ข้อความเริ่มต้นในช่องความเห็น (เช่น ข้อแนะนำ AI ที่ผู้ตรวจเลือกทำตาม) — แก้ได้ก่อนลงนาม */
+  export let initialComment = ''
 
   const dispatch = createEventDispatcher()
-  let comment = '', pin = '', err = '', busy = false
+  let comment = initialComment, pin = '', err = '', busy = false
 
   function confirm() {
     if (commentRequired && !comment.trim()) { err = `กรุณาระบุ${commentLabel}`; return }

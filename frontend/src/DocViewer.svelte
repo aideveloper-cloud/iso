@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte'
-  import { srcLabel, fmtWhen, DCR_STATUS } from './lib/changeNote.js'
+  import { srcLabel, fmtWhen, DCR_STATUS, packChangeNote } from './lib/changeNote.js'
   import { api, fileUrl, pdfUrl, bytesToB64 } from './lib/api.js'
   import { OFFICE_EXTS } from './lib/const.js'
   import DocBody from './DocBody.svelte'
@@ -13,6 +13,7 @@
   import DocAcks from './DocAcks.svelte'
   import DocCopies from './DocCopies.svelte'
   import IssueCopyDialog from './IssueCopyDialog.svelte'
+  import AiPanel from './AiPanel.svelte'
   import DecisionDialog from './DecisionDialog.svelte'
   import Icon from './Icon.svelte'
 
@@ -73,6 +74,20 @@
   $: canIssueCopy = isDcc && isLatest && !obsolete && !!content
   const DL_TITLE = 'ไฟล์ที่ดาวน์โหลดถูกบันทึกเป็นสำเนาของคุณ — เมื่อออก Rev. ใหม่ ระบบจะแจ้งให้ลบไฟล์เก่า'
   let issuing = false
+  // ผู้ช่วย AI: แท็บแสดงเมื่อเซิร์ฟเวอร์ตั้ง OPENAI_API_KEY แล้ว · ข้อที่ทำตามสร้างเป็นฉบับร่างแล้วส่ง DCR ตามขั้นตอนปกติ
+  let aiEnabled = false
+  let aiDraft = null // { reason, note } เมื่อฉบับร่างมาจากข้อแนะนำ AI
+  $: canAiApply = canChange && ['docx', 'xlsx'].includes(meta?.ext)
+  $: aiBlocked = openChange ? `มีคำขอ ${openChange.refNo} ค้างอยู่ — ดำเนินการคำขอนั้นให้เสร็จก่อนจึงสร้างคำขอใหม่จากข้อแนะนำได้`
+    : obsolete ? 'เอกสารนี้ยกเลิกใช้แล้ว'
+    : me?.role === 'viewer' ? 'บัญชีอ่านอย่างเดียวแก้เอกสารไม่ได้'
+    : !['docx', 'xlsx'].includes(meta?.ext) ? 'ไฟล์ชนิดนี้แก้อัตโนมัติไม่ได้ — แก้ตามข้อที่ทำตามผ่านปุ่ม “แก้ไขเอกสาร”' : ''
+  function onAiApply(e) {
+    const b = e.detail
+    pendingUpload = { name: b.filename, ext: b.ext, b64: b.dataBase64, size: 0 }
+    aiDraft = { reason: b.reason, note: packChangeNote({ topic: 'แก้ตามข้อแนะนำผู้ช่วย AI', detail: b.note }) }
+    signing = 'upload'
+  }
   $: shownChange =changes.find((c) => c.id === selChange) || openChange || changes[0] || null
 
   function askConfirm(message, run) {
@@ -97,6 +112,7 @@
 
   onMount(() => {
     load().then(loadAcks).then(resumeWebOffice)
+    api.aiStatus().then((s) => (aiEnabled = !!s?.enabled)).catch(() => {})
     loadChanges().then(() => {
       if (initialChange && changes.some((c) => c.id === initialChange)) { selChange = initialChange; tab = 'dcr' }
     })
@@ -239,6 +255,7 @@
       signing = null
       pendingUpload = null
       draft = null
+      aiDraft = null
       await afterSubmit(body)
     } catch (ex) {
       fail('ส่งคำขอไม่สำเร็จ: ' + ex.message)
@@ -266,6 +283,7 @@
   function cancelSign() {
     signing = null
     pendingUpload = null
+    aiDraft = null
   }
 
   async function openAndEdit(v) {
@@ -308,6 +326,7 @@
       <button class={tab === 'dcr' ? 'active' : ''} on:click={() => (tab = 'dcr')}>คำขอเปลี่ยนแปลง ({changes.length}){#if openChange} •{/if}</button>
       <button class={tab === 'ack' ? 'active' : ''} on:click={() => { tab = 'ack'; loadAcks() }}>การแจกจ่าย/รับทราบ{#if myAck} •{/if}</button>
       <button class={tab === 'copies' ? 'active' : ''} on:click={() => (tab = 'copies')}>สำเนา</button>
+      {#if aiEnabled}<button class={tab === 'ai' ? 'active' : ''} on:click={() => (tab = 'ai')}>ผู้ช่วย AI</button>{/if}
       <span class="grow"></span>
       {#if !loading && tab === 'doc' && meta}
         {#if content && canDownload(ver)}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download title={DL_TITLE}><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
@@ -512,6 +531,8 @@
             </div>
           {/each}
         </div>
+      {:else if tab === 'ai' && meta}
+        <AiPanel kind="doc" subject={doc.code} {me} canApply={canAiApply} blockedReason={aiBlocked} on:apply={onAiApply} />
       {:else if tab === 'copies' && meta}
         {#key issuing}<DocCopies {doc} {me} rev={meta.rev || doc.rev} canIssue={canIssueCopy} />{/key}
       {:else if tab === 'ack' && meta}
@@ -545,7 +566,11 @@
           ? 'ฉบับที่แก้ในตัวแก้ไขเอกสาร → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
           : signing === 'edit'
           ? 'แก้ไขบนเว็บ → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
+          : aiDraft
+          ? 'ฉบับร่างที่ระบบแก้ตามข้อแนะนำ AI ที่คุณเลือกทำตาม → ส่งให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
           : `แนบไฟล์ “${pendingUpload?.name}” → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ`}
+        initialReason={aiDraft?.reason || ''}
+        initialNote={aiDraft?.note || ''}
         confirmLabel="ส่งขออนุมัติ"
         {me}
         withPin
