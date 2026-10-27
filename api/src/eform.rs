@@ -496,12 +496,34 @@ pub(crate) async fn audit(c: &impl deadpool_postgres::GenericClient, u: &AuthUse
     ).await.map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// เรียง Rev. ตามตัวเลข (ไม่ใช่ตัวอักษร — "Rev.10" ต้องใหม่กว่า "Rev.9")
+fn rev_key(rev: &str) -> (u32, String) { (crate::revscan::rev_num(rev).unwrap_or(0), rev.to_string()) }
+
+/// schema ฉบับใช้งาน (Rev. สูงสุด) ของแบบฟอร์ม
 async fn load_schema(c: &impl deadpool_postgres::GenericClient, code: &str) -> Result<Value, String> {
-    let row = c.query_opt("SELECT body FROM form_schemas WHERE form_code=$1 ORDER BY form_rev DESC LIMIT 1", &[&code])
-        .await.map_err(|e| e.to_string())?;
-    let Some(row) = row else { return Err(format!("ยังไม่มี schema ของ {code}")); };
-    let body: String = row.get(0);
+    let rows = c.query("SELECT form_rev,body FROM form_schemas WHERE form_code=$1", &[&code]).await.map_err(|e| e.to_string())?;
+    let Some(row) = rows.iter().max_by_key(|r| rev_key(&r.get::<_, String>(0))) else { return Err(format!("ยังไม่มี schema ของ {code}")); };
+    let body: String = row.get(1);
     serde_json::from_str(&body).map_err(|_| "schema เสียหาย".into())
+}
+
+/// schema ตาม Rev. ที่ใบนั้นใช้กรอก (แสดง/พิมพ์ให้ตรงแบบฟอร์มขณะนั้น) — ไม่มีแล้วใช้ฉบับใช้งาน
+async fn load_schema_rev(c: &impl deadpool_postgres::GenericClient, code: &str, rev: &str) -> Result<Value, String> {
+    if let Ok(Some(r)) = c.query_opt("SELECT body FROM form_schemas WHERE form_code=$1 AND form_rev=$2", &[&code, &rev]).await {
+        if let Ok(v) = serde_json::from_str(&r.get::<_, String>(0)) { return Ok(v); }
+    }
+    load_schema(c, code).await
+}
+
+/// Rev. ฉบับใช้งานของแบบฟอร์มออนไลน์ทุกตัว: form_code → form_rev
+pub(crate) async fn latest_schema_revs(c: &impl deadpool_postgres::GenericClient) -> HashMap<String, String> {
+    let mut m: HashMap<String, String> = HashMap::new();
+    for r in c.query("SELECT form_code,form_rev FROM form_schemas", &[]).await.unwrap_or_default() {
+        let (code, rev): (String, String) = (r.get(0), r.get(1));
+        let newer = m.get(&code).map(|cur| rev_key(&rev) > rev_key(cur)).unwrap_or(true);
+        if newer { m.insert(code, rev); }
+    }
+    m
 }
 
 fn schema_summary(body: &str) -> Value {
@@ -593,6 +615,10 @@ pub async fn record_create(State(st): State<S>, Extension(u): Extension<AuthUser
     let client = match st.db.get().await { Ok(c) => c, Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
     let schema = match load_schema(&client, b.formCode.trim()).await { Ok(s) => s, Err(e) => return err(StatusCode::BAD_REQUEST, &e) };
     let code = schema["form_code"].as_str().unwrap_or("").to_string();
+    // แบบฟอร์มที่ยกเลิกใช้ในทะเบียน — ห้ามกรอกใบใหม่ (7.5.3.2 d)
+    if crate::doccontrol::is_obsolete(&client, &code).await {
+        return err(StatusCode::CONFLICT, &format!("แบบฟอร์ม {code} ยกเลิกใช้แล้ว — กรอกใบใหม่ไม่ได้"));
+    }
     let rev = schema["form_rev"].as_str().unwrap_or("").to_string();
     let now = now_iso();
     let token = new_token(&format!("checkin-{code}"));
@@ -640,7 +666,13 @@ async fn record_detail_resp(st: &S, id: i64, _u: &AuthUser, origin: &str) -> Res
     item["history"] = Value::Array(hist.iter().map(|h| json!({
         "id": h.get::<_, i64>(0), "refNo": h.get::<_, String>(1), "revNo": h.get::<_, i64>(2), "status": h.get::<_, String>(3), "updatedAt": h.get::<_, String>(4),
     })).collect());
-    if let Ok(schema) = load_schema(&client, item["formCode"].as_str().unwrap_or("")).await { item["schema"] = schema; }
+    let form_code = item["formCode"].as_str().unwrap_or("").to_string();
+    let form_rev = item["formRev"].as_str().unwrap_or("").to_string();
+    if let Ok(schema) = load_schema_rev(&client, &form_code, &form_rev).await { item["schema"] = schema; }
+    // ร่างที่สร้างจากแบบฟอร์ม Rev. เก่า ต้องย้ายไปฉบับปัจจุบันก่อนส่ง
+    let current = latest_schema_revs(&client).await.remove(&form_code).unwrap_or_default();
+    item["staleForm"] = json!(!current.is_empty() && current != form_rev && editable_status(item["status"].as_str().unwrap_or("")));
+    item["currentFormRev"] = json!(current);
     Json(item).into_response()
 }
 
@@ -762,6 +794,13 @@ pub async fn record_submit(State(st): State<S>, Extension(u): Extension<AuthUser
     let cur = match load_row(&client, id).await { Some(v) => v, None => return err(StatusCode::NOT_FOUND, "ไม่พบบันทึก") };
     if !can_edit(&u, &cur) { return err(StatusCode::FORBIDDEN, "ส่งได้เฉพาะร่างของตนเอง"); }
     let schema = match load_schema(&client, cur["formCode"].as_str().unwrap_or("")).await { Ok(s) => s, Err(e) => return err(StatusCode::BAD_REQUEST, &e) };
+    let current_rev = schema["form_rev"].as_str().unwrap_or("");
+    if cur["formRev"].as_str().unwrap_or("") != current_rev {
+        return (StatusCode::CONFLICT, Json(json!({
+            "error": format!("ใบนี้กรอกบนแบบฟอร์ม {} ซึ่งไม่ใช่ฉบับใช้งานแล้ว — กด “ย้ายไป {current_rev}” แล้วตรวจข้อมูลก่อนส่ง", cur["formRev"].as_str().unwrap_or("")),
+            "staleForm": true, "currentFormRev": current_rev,
+        }))).into_response();
+    }
     if let Err(e) = validate_data(&schema, &cur["data"]) { return err(StatusCode::BAD_REQUEST, &e); }
     let flow = schema["approval_flow"].as_array().cloned().unwrap_or_default();
     let next_status = flow.first().and_then(|s| s["step"].as_str()).unwrap_or("approved");
@@ -791,6 +830,23 @@ pub async fn record_submit(State(st): State<S>, Extension(u): Extension<AuthUser
     }
     if tx.commit().await.is_err() { return err(StatusCode::INTERNAL_SERVER_ERROR, "ยืนยันรายการไม่ได้"); }
     let _ = audit_user(&st, &u, "submit", &id.to_string(), &ref_no).await;
+    record_detail_resp(&st, id, &u, "").await
+}
+
+/// ย้ายร่าง/ใบตีกลับไปใช้แบบฟอร์มฉบับปัจจุบัน (ข้อมูลที่กรอกไว้คงเดิม — ช่องที่เพิ่มใหม่ต้องกรอกก่อนส่ง)
+pub async fn record_upgrade(State(st): State<S>, Extension(u): Extension<AuthUser>, Path(id): Path<i64>) -> Response {
+    let client = match st.db.get().await { Ok(c) => c, Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
+    let cur = match load_row(&client, id).await { Some(v) => v, None => return err(StatusCode::NOT_FOUND, "ไม่พบบันทึก") };
+    if !can_edit(&u, &cur) { return err(StatusCode::FORBIDDEN, "ย้ายฉบับได้เฉพาะร่างของตนเอง"); }
+    let schema = match load_schema(&client, cur["formCode"].as_str().unwrap_or("")).await { Ok(s) => s, Err(e) => return err(StatusCode::BAD_REQUEST, &e) };
+    let to = schema["form_rev"].as_str().unwrap_or("").to_string();
+    let from = cur["formRev"].as_str().unwrap_or("").to_string();
+    if from != to {
+        if client.execute("UPDATE form_records SET form_rev=$2,updated_at=$3 WHERE id=$1", &[&id, &to, &now_iso()]).await.is_err() {
+            return err(StatusCode::INTERNAL_SERVER_ERROR, "ย้ายฉบับไม่สำเร็จ");
+        }
+        audit_user(&st, &u, "form_upgrade", &id.to_string(), &format!("{} {from} → {to}", cur["formCode"].as_str().unwrap_or(""))).await;
+    }
     record_detail_resp(&st, id, &u, "").await
 }
 
@@ -1342,7 +1398,7 @@ pub async fn backup_once(pool: &deadpool_postgres::Pool, dir: &PathBuf) {
 pub async fn print_with_steps(st: &S, id: i64, origin: &str) -> Result<String, String> {
     let client = st.db.get().await.map_err(|e| e.to_string())?;
     let cur = load_row(&client, id).await.ok_or("ไม่พบ")?;
-    let schema = load_schema(&client, cur["formCode"].as_str().unwrap_or("")).await.unwrap_or(json!({}));
+    let schema = load_schema_rev(&client, cur["formCode"].as_str().unwrap_or(""), cur["formRev"].as_str().unwrap_or("")).await.unwrap_or(json!({}));
     let token = cur["checkinToken"].as_str().unwrap_or("").to_string();
     let mut payload = print_payload(&cur, &schema, origin, &token);
     let steps = client.query("SELECT step,action,actor_name,actor_position,comment,at FROM form_steps WHERE record_id=$1 ORDER BY id", &[&id]).await.unwrap_or_default();

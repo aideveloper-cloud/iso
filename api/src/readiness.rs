@@ -202,6 +202,22 @@ pub async fn evaluate(st: &S) -> Value {
             ak["overdueDocs"].as_array().cloned().unwrap_or_default().iter().filter_map(|x| x.as_str().map(String::from)).collect());
     }
 
+    // ---------- ควบคุม Rev. / สำเนาเอกสาร (7.5.3.2 c–d) ----------
+    let rc = crate::revcontrol::evaluate(st).await;
+    if let Some(sm) = rc.get("summary") {
+        let n = |k: &str| sm[k].as_i64().unwrap_or(0);
+        let mism: Vec<String> = rc["issues"].as_array().cloned().unwrap_or_default().iter()
+            .filter(|i| i["level"] == json!("bad")).filter_map(|i| i["docCode"].as_str().map(String::from)).collect();
+        cs.check("doc-rev-file", "เลข Rev. ในไฟล์และแบบฟอร์มออนไลน์ตรงกับทะเบียน", "เอกสาร", "7.5", mism.is_empty(), false,
+            if mism.is_empty() { format!("ตรวจเนื้อหาไฟล์แล้ว {} ฉบับ — ไม่พบ Rev. ที่ขัดกับทะเบียน", n("scanned")) }
+            else { format!("{} ฉบับระบุ Rev. ไม่ตรงทะเบียน — ตรวจที่เมนู ควบคุม Rev. / สำเนา", mism.len()) }, mism);
+        let overdue: Vec<String> = rc["recall"].as_array().cloned().unwrap_or_default().iter()
+            .filter(|c| c["overdue"] == json!(true)).filter_map(|c| c["copyNo"].as_str().map(String::from)).collect();
+        cs.check("doc-copy-recall", "เรียกคืนสำเนาเอกสารฉบับเก่าครบตามกำหนด", "เอกสาร", "7.5", overdue.is_empty(), false,
+            if n("recall") == 0 { format!("ไม่มีสำเนาฉบับเก่าค้างเรียกคืน · สำเนาควบคุมที่ใช้งาน {} ชุด", n("activePrint")) }
+            else { format!("ค้างเรียกคืน {} รายการ · เลยกำหนด {} วัน {} รายการ", n("recall"), n("recallDays"), overdue.len()) }, overdue);
+    }
+
     // ---------- การตรวจติดตามภายใน (9.2) ----------
     if let Some(c) = &client {
         let ia = crate::internalaudit::facts(c).await;

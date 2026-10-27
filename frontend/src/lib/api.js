@@ -64,6 +64,12 @@ export const api = {
   editCommit: (id, note) => postJson(`/api/edit/${id}/commit`, { note }),
   ovEditMine: (path) => send(`/api/overview/edit?path=${encodeURIComponent(path)}`).then((r) => r.json()),
   ovEditStart: (path) => postJson('/api/overview/edit', { path }),
+  // ควบคุม Rev. / สำเนาเอกสาร (7.5.3.2) — ดู revcontrol.rs
+  revControl: () => send('/api/revcontrol').then((r) => r.json()),
+  copies: (q) => send('/api/copies?' + new URLSearchParams(q || {})).then((r) => r.json()),
+  copyIssue: (code, payload) => postJson(`/api/docs/${encodeURIComponent(code)}/copies`, payload),
+  copyClose: (id, result, note) => postJson(`/api/copies/${id}/close`, { result, note }),
+  verify: (token) => fetch('/api/public/verify/' + encodeURIComponent(token)).then(async (r) => ({ ok: r.ok, body: await r.json().catch(() => ({})) })),
   docObsolete: (code, reason, pin) => postJson(`/api/docs/${encodeURIComponent(code)}/obsolete`, { reason, pin }),
   docReinstate: (code, reason, pin) => postJson(`/api/docs/${encodeURIComponent(code)}/reinstate`, { reason, pin }),
   actions: () => send('/api/actions').then((r) => r.json()),
@@ -169,6 +175,7 @@ export const api = {
   formAct: (id, action, comment) => postJson(`/api/forms/records/${id}/act`, { action, comment }),
   formCancel: (id, reason) => postJson(`/api/forms/records/${id}/cancel`, { reason }),
   formAmend: (id, reason) => postJson(`/api/forms/records/${id}/amend`, { reason }),
+  formUpgrade: (id) => postJson(`/api/forms/records/${id}/upgrade`, {}),
   formPending: () => send('/api/forms/pending').then((r) => r.json()),
   formStats: () => send('/api/forms/stats').then((r) => r.json()),
   formTraining: (q) => send('/api/forms/training?' + new URLSearchParams({ q: q || '' })).then((r) => r.json()),
@@ -189,6 +196,8 @@ export const fileUrl = (code, v, dl) =>
 export const pdfUrl = (code, v) => (`/api/docs/${encodeURIComponent(code)}/pdf?v=${v}`)
 export const ovPdfUrl = (p, v) => (`/api/overview/pdf?path=${encodeURIComponent(p)}${v ? `&v=${v}` : ''}`)
 export const changeFileUrl = (id, dl) => (`/api/changes/${id}/file${dl ? '?dl=1' : ''}`)
+// PDF สำเนาควบคุม (ประทับเลขสำเนา + QR) — เปิดแท็บใหม่เพื่อสั่งพิมพ์
+export const copyPdfUrl = (id) => (`/api/copies/${id}/pdf`)
 // ?s=<sha> เปลี่ยนทุกครั้งที่บันทึก — กันเบราว์เซอร์ใช้ PDF เก่าจากแคช
 export const editPdfUrl = (id, sha) => (`/api/edit/${id}/pdf?s=${(sha || '').slice(0, 16)}`)
 export const ovFileUrl = (p, dl) =>

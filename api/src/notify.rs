@@ -2,9 +2,10 @@
 //   DCR รอตรวจ/อนุมัติ · แบบฟอร์มรออนุมัติ · เอกสารที่ต้องรับทราบ · CAR/DAR/PAR ที่รับผิดชอบ/รอทวนสอบ
 //   · งานจากการทบทวนฝ่ายบริหาร · การตรวจติดตามที่เป็นหัวหน้าผู้ตรวจ · ผล KPI ที่ต้องบันทึก · ความเสี่ยงที่ถึงกำหนดทบทวน
 //   · เครื่องมือวัดที่ถึงกำหนดสอบเทียบ/ค้างประเมินผลกระทบ · ผู้ขายที่ถึงกำหนดประเมินซ้ำ/ผลประเมินต่ำที่ยังไม่มี CAR
+//   · สำเนาเอกสารฉบับเก่าที่ต้องคืน/ทำลาย (ผู้ถือ) และที่เลยกำหนดเรียกคืน (ผู้ควบคุมเอกสาร)
 //   อีเมลสรุปงานรายวัน (เลือกรับเอง) ส่งเมื่อตั้งค่า SMTP_HOST — ไม่ตั้ง = ใช้เฉพาะในระบบ
 use crate::eform::{self, AuthUser};
-use crate::{calibration, capa, err, kpi, risks, suppliers, S};
+use crate::{calibration, capa, err, kpi, revcontrol, risks, suppliers, S};
 use axum::{
     extract::{Extension, State},
     http::StatusCode,
@@ -62,6 +63,26 @@ pub async fn items(st: &S, u: &AuthUser) -> Vec<Value> {
             let (code, rev, due): (String, String, String) = (r.get(0), r.get(1), r.get(2));
             let name = st.by_code.get(&code).and_then(|d| d["name"].as_str()).unwrap_or("").to_string();
             out.push(item("ack", "ack", &code, &format!("รับทราบเอกสาร {code} {name}"), if rev.is_empty() { String::new() } else { format!("ฉบับ {rev}") }, &due, urgency(&due, &today)));
+        }
+    }
+    // สำเนาฉบับเก่าที่ตนถือ (กระดาษ/ไฟล์ที่ดาวน์โหลดไว้) — ต้องคืน/ทำลายหลังออก Rev. ใหม่หรือยกเลิกใช้
+    if let Ok(rows) = c.query("SELECT copy_no,doc_code,rev,kind,location,recall_at,recall_reason FROM doc_copies WHERE holder_code=$1 AND status='recall' ORDER BY recall_at", &[&me]).await {
+        for r in rows {
+            let (copy_no, code, rev, kind, location, at, reason): (String, String, String, String, String, String, String) =
+                (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6));
+            let due = plus_days(at.get(..10).unwrap_or(""), revcontrol::RECALL_DAYS);
+            let title = if kind == "file" { format!("ลบไฟล์ {code} {rev} ที่ดาวน์โหลดไว้ แล้วใช้ฉบับปัจจุบัน") } else { format!("คืน/ทำลายสำเนา {code} {rev} ({copy_no})") };
+            let detail = if location.is_empty() { reason } else { format!("{reason} · {location}") };
+            out.push(item("copy", "rev", &copy_no, &title, detail, &due, urgency(&due, &today)));
+        }
+    }
+    // ผู้ควบคุมเอกสาร: สำเนาฉบับเก่าของผู้อื่นที่เลยกำหนดเรียกคืน
+    if eform::can_review(&u.role) {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::days(revcontrol::RECALL_DAYS)).to_rfc3339();
+        let n: i64 = c.query_one("SELECT COUNT(*) FROM doc_copies WHERE status='recall' AND holder_code<>$1 AND recall_at<$2", &[&me, &cutoff])
+            .await.map(|r| r.get(0)).unwrap_or(0);
+        if n > 0 {
+            out.push(item("copy", "rev", "", &format!("ติดตามเรียกคืนสำเนาเอกสารฉบับเก่า {n} รายการ"), format!("เลยกำหนด {} วันหลังออก Rev. ใหม่", revcontrol::RECALL_DAYS), "", "overdue"));
         }
     }
     // CAR/DAR/PAR — ที่ตนรับผิดชอบ และที่รอทวนสอบประสิทธิผล (ผู้ตรวจสอบที่ไม่ใช่ผู้รับผิดชอบ)

@@ -169,9 +169,25 @@
     err = ''
     await save(true)
     const { ok, body } = await api.formSubmit(rec.id)
-    if (!ok) { err = body.error || 'ส่งไม่สำเร็จ'; return }
+    if (!ok) {
+      const m = body.error || 'ส่งไม่สำเร็จ'
+      // แบบฟอร์มออก Rev. ใหม่ระหว่างกรอก — โหลดใบใหม่ให้เห็นแถบย้ายฉบับ
+      if (body.staleForm) await openId(rec.id)
+      err = m
+      return
+    }
     openRec(body)
     msg = 'ส่งอนุมัติแล้ว ' + body.refNo
+  }
+
+  /** ย้ายร่างไปแบบฟอร์มฉบับใช้งานปัจจุบัน (ข้อมูลที่กรอกคงเดิม) */
+  async function upgradeRec() {
+    err = ''
+    await save(true)
+    const { ok, body } = await api.formUpgrade(rec.id)
+    if (!ok) { err = body.error || 'ย้ายฉบับไม่สำเร็จ'; return }
+    await openRec(body)
+    msg = `ย้ายไปแบบฟอร์ม ${body.formRev} แล้ว — ตรวจข้อมูลแล้วจึงส่ง`
   }
 
   async function act(action) {
@@ -353,6 +369,13 @@
     <div class="note mb-2">ผู้จัดทำ {rec.preparedName} · {rec.preparedPosition || ''} · แก้ชื่อผู้จัดทำไม่ได้</div>
     {#if rec.status === 'returned'}
       <div class="merr">ตีกลับ: {rec.steps?.filter((s) => s.action === 'return').slice(-1)[0]?.comment || ''}</div>
+    {/if}
+    {#if rec.staleForm}
+      <div class="ver-warn">
+        <Icon name="alert-triangle" size={16} />
+        <span>ใบนี้กรอกบนแบบฟอร์ม <b>{rec.formRev}</b> แต่ฉบับใช้งานปัจจุบันคือ <b>{rec.currentFormRev}</b> — ส่งอนุมัติไม่ได้จนกว่าจะย้ายไปฉบับปัจจุบัน (ข้อมูลที่กรอกไว้ยังอยู่ ตรวจช่องที่เปลี่ยนแล้วจึงส่ง)</span>
+        {#if editable()}<button class="vw-btn" on:click={upgradeRec}>ย้ายไป {rec.currentFormRev}</button>{/if}
+      </div>
     {/if}
 
     {#if schema}

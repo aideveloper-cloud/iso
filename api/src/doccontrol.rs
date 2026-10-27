@@ -162,7 +162,7 @@ pub fn bump_rev(rev: &str) -> String {
 }
 
 /// วันที่วันนี้ในรูปแบบทะเบียนเอกสาร: วว/ดด/พ.ศ. (เวลาไทย)
-fn today_th() -> String {
+pub(crate) fn today_th() -> String {
     let tz = chrono::FixedOffset::east_opt(7 * 3600).unwrap();
     let d = chrono::Utc::now().with_timezone(&tz);
     let y: i64 = d.format("%Y").to_string().parse().unwrap_or(2026) + 543;
@@ -229,7 +229,9 @@ pub async fn download_name(st: &S, code: &str, v: i64, filename: &str) -> String
     let Ok(c) = st.db.get().await else { return filename.to_string() };
     if is_obsolete(&c, code).await { return format!("OBSOLETE - {filename}"); }
     let latest: i64 = c.query_one("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=$1", &[&code]).await.map(|r| r.get(0)).unwrap_or(0);
-    if v < latest { format!("UNCONTROLLED v{v} - {filename}") } else { filename.to_string() }
+    if v < latest { return format!("UNCONTROLLED v{v} - {filename}"); }
+    // ฉบับปัจจุบัน: เลข Rev. ในชื่อไฟล์ต้องตรงทะเบียน (ไฟล์ต้นฉบับบนดิสก์อาจยังชื่อ Rev. เดิม)
+    crate::revscan::rename_rev(filename, &current_rev(st, &c, code).await)
 }
 
 /// จำนวนคำขอที่รอผู้ใช้คนนี้ตรวจสอบ/อนุมัติ
@@ -412,9 +414,11 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
         let code = ch["docCode"].as_str().unwrap_or("").to_string();
         let origin = st.by_code.get(&code).and_then(|d| d["path"].as_str()).filter(|p| !p.is_empty()).map(|p| st.docs_root.join(p));
         let eff = today_th();
+        // ชื่อไฟล์ของ Rev. ใหม่ระบุเลข Rev. ใหม่ (ไฟล์ร่างมักใช้ชื่อเดิมที่ยังเป็น Rev. ก่อนหน้า)
+        let filename = crate::revscan::rename_rev(ch["filename"].as_str().unwrap_or(""), ch["newRev"].as_str().unwrap_or(""));
         let nv = NewVersion {
             code: &code,
-            filename: ch["filename"].as_str().unwrap_or(""),
+            filename: &filename,
             ext: ch["ext"].as_str().unwrap_or(""),
             source: ch["source"].as_str().unwrap_or("upload"),
             note: ch["note"].as_str().unwrap_or(""),
@@ -432,6 +436,8 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
                 let _ = client.execute("UPDATE doc_changes SET version=$2,closed_at=$3 WHERE id=$1", &[&id, &version, &now]).await;
                 // แจกจ่าย Rev. ใหม่: ส่งคำขอรับทราบให้ทุกคนในรายชื่อ (7.5.3)
                 crate::acks::on_effective(&st, &client, &code, version, ch["newRev"].as_str().unwrap_or(""), &u.name).await;
+                // สำเนาที่พิมพ์/ดาวน์โหลดของฉบับเก่าต้องเรียกคืน (7.5.3.2 d)
+                crate::revcontrol::on_effective(&client, &code, version, ch["newRev"].as_str().unwrap_or("")).await;
             }
             Err(r) => {
                 let _ = client.execute("UPDATE doc_changes SET status='approve',updated_at=$2 WHERE id=$1", &[&id, &now]).await;
@@ -579,6 +585,7 @@ pub async fn obsolete(Path(code): Path<String>, State(st): State<S>, Extension(u
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
     set_status(&client, &code, "obsolete", &reason, &u).await;
     crate::acks::on_obsolete(&client, &code).await;
+    crate::revcontrol::on_obsolete(&client, &code, &reason).await;
     let _ = eform::audit(&client, &u, "doc_obsolete", "document", &code, &reason).await;
     Json(json!({ "ok": true })).into_response()
 }
@@ -593,6 +600,7 @@ pub async fn reinstate(Path(code): Path<String>, State(st): State<S>, Extension(
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
     set_status(&client, &code, "active", &reason, &u).await;
     crate::acks::on_reinstate(&st, &client, &code, &u.name).await;
+    crate::revcontrol::on_reinstate(&client, &code).await;
     let _ = eform::audit(&client, &u, "doc_reinstate", "document", &code, &reason).await;
     Json(json!({ "ok": true })).into_response()
 }

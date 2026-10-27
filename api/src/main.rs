@@ -29,7 +29,10 @@ mod mreview;
 mod notify;
 mod pdfview;
 mod readiness;
+mod revcontrol;
+mod revscan;
 mod risks;
+mod stamp;
 mod suppliers;
 mod training;
 
@@ -198,6 +201,7 @@ async fn init_db(pool: &Pool) {
                 client.batch_execute(calibration::SCHEMA).await.expect("สร้างตารางเครื่องมือวัดและการสอบเทียบไม่สำเร็จ");
                 client.batch_execute(suppliers::SCHEMA).await.expect("สร้างตารางผู้ขายและการประเมินไม่สำเร็จ");
                 client.batch_execute(notify::SCHEMA).await.expect("ปรับตารางการแจ้งเตือนไม่สำเร็จ");
+                client.batch_execute(revcontrol::SCHEMA).await.expect("สร้างตารางสำเนาเอกสารไม่สำเร็จ");
                 return;
             }
             Err(e) => {
@@ -578,7 +582,8 @@ async fn versions(Path(code): Path<String>, State(st): State<S>) -> Response {
 async fn preview_abs(st: &S, abs: &PathBuf, ext: &str) -> Value {
     let mut v = preview_kind(st, abs, ext).await;
     // หน้าอ่านใช้ PDF (เหมือนต้นฉบับ) — HTML/ตารางยังใช้สำหรับแก้บนเว็บ และเป็นทางสำรองถ้าแปลง PDF ไม่ได้
-    if pdfview::convertible(ext) { v["pdf"] = json!(true); }
+    // ไฟล์ PDF เดิมก็เปิดผ่าน /pdf เพื่อให้มีตราประทับสถานะ Rev. + QR เหมือนเอกสารอื่น
+    if pdfview::convertible(ext) || ext == "pdf" { v["pdf"] = json!(true); }
     v
 }
 
@@ -875,6 +880,11 @@ async fn latest_by_doc(st: &S) -> HashMap<String, Value> {
 async fn content(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>, Extension(u): Extension<eform::AuthUser>) -> Response {
     let (ver, abs, ext, _fn) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
     acks::mark_opened(&st, &u, &code, ver).await;
+    // ตาราง Excel ส่งไฟล์ต้นฉบับทั้งไฟล์ (base64) — ฉบับเก่า/ยกเลิกใช้ให้คนทั่วไปดูเฉพาะ PDF ที่ประทับตรา
+    if matches!(ext.as_str(), "xls" | "xlsx") && revcontrol::authorize_original(&st, &u, &code, ver).await.is_err() {
+        return Json(json!({ "kind": "download", "ext": ext, "pdf": true, "version": ver,
+            "reason": "ฉบับนี้ไม่ใช่ฉบับใช้งาน — ดูได้เฉพาะ PDF ที่ประทับ SUPERSEDED/OBSOLETE" })).into_response();
+    }
     let mut body = preview_abs(&st, &abs, &ext).await;
     body["version"] = json!(ver);
     Json(body).into_response()
@@ -882,11 +892,15 @@ async fn content(Path(code): Path<String>, Query(q): Query<HashMap<String, Strin
 
 async fn file(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>, Extension(u): Extension<eform::AuthUser>) -> Response {
     let (v, abs, ext, filename) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
+    let dl = q.get("dl").map(|s| s == "1").unwrap_or(false);
+    // ไฟล์ต้นฉบับของฉบับเก่า/ยกเลิกใช้: เฉพาะผู้ควบคุมเอกสาร ทั้งดาวน์โหลดและเปิด inline · ดาวน์โหลดฉบับปัจจุบันบันทึกไว้เพื่อเรียกคืนเมื่อออก Rev. ใหม่
+    if let Err(r) = revcontrol::authorize_original(&st, &u, &code, v).await { return r; }
+    if dl { revcontrol::record_download(&st, &u, &code, v).await; }
     acks::mark_opened(&st, &u, &code, v).await;
     let bytes = match fs::read(&abs) { Ok(b) => b, Err(_) => return err(StatusCode::NOT_FOUND, "อ่านไฟล์ไม่ได้") };
     // กันการนำไปใช้โดยไม่ตั้งใจ (7.5.3.2 d): ไฟล์ที่ไม่ใช่ฉบับใช้งานปัจจุบันติดป้ายไว้ที่ชื่อไฟล์
     let filename = doccontrol::download_name(&st, &code, v, &filename).await;
-    let disp = if q.get("dl").map(|s| s == "1").unwrap_or(false) { "attachment" } else { "inline" };
+    let disp = if dl { "attachment" } else { "inline" };
     Response::builder()
         .header(header::CONTENT_TYPE, mime_of(&ext))
         .header(header::CONTENT_DISPOSITION, format!("{disp}; filename*=UTF-8''{}", pct(&filename)))
@@ -949,6 +963,11 @@ async fn main() {
         .route("/api/docs/:code/content", get(content))
         .route("/api/docs/:code/file", get(file))
         .route("/api/docs/:code/pdf", get(pdfview::doc_pdf))
+        .route("/api/docs/:code/copies", axum::routing::post(revcontrol::issue))
+        .route("/api/copies", get(revcontrol::list))
+        .route("/api/copies/:id/pdf", get(revcontrol::copy_pdf))
+        .route("/api/copies/:id/close", axum::routing::post(revcontrol::close))
+        .route("/api/revcontrol", get(revcontrol::report))
         .route("/api/stats", get(stats))
         .route("/api/readiness", get(readiness::get))
         .route("/api/readiness/runs", get(readiness::runs).post(readiness::save_run))
@@ -1027,6 +1046,7 @@ async fn main() {
         .route("/api/forms/records/:id/act", axum::routing::post(eform::record_act))
         .route("/api/forms/records/:id/cancel", axum::routing::post(eform::record_cancel))
         .route("/api/forms/records/:id/amend", axum::routing::post(eform::record_amend))
+        .route("/api/forms/records/:id/upgrade", axum::routing::post(eform::record_upgrade))
         .route("/api/forms/records/:id/files", axum::routing::post(eform::file_add))
         .route("/api/forms/records/:id/print", get(eform::record_print))
         .route("/api/forms/files/:fid", get(eform::file_get))
@@ -1044,6 +1064,7 @@ async fn main() {
         .route("/api/public/edit/:token", get(editsession::public_get))
         .route("/api/public/office/:token", axum::routing::post(editsession::office_callback))
         .route("/api/public/checkin/:token", get(eform::checkin_info))
+        .route("/api/public/verify/:token", get(revcontrol::verify))
         .route("/api/public/checkin", axum::routing::post(eform::checkin))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(axum::middleware::from_fn_with_state(state.clone(), eform::require_auth))

@@ -8,6 +8,8 @@
   import Actions from './Actions.svelte'
   import AuditHub from './AuditHub.svelte'
   import Changes from './Changes.svelte'
+  import RevControl from './RevControl.svelte'
+  import Verify from './Verify.svelte'
   import ManagementReview from './ManagementReview.svelte'
   import InternalAudit from './InternalAudit.svelte'
   import Acks from './Acks.svelte'
@@ -27,7 +29,7 @@
   import FilePreview from './FilePreview.svelte'
   import Icon from './Icon.svelte'
 
-  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm', 'kpi', 'risk', 'cal', 'sup']
+  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'rev', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm', 'kpi', 'risk', 'cal', 'sup']
   let tab = 'dash'
   let docs = [], overview = []
   let openCode = null
@@ -45,6 +47,7 @@
   let me = null
   let pending = 0
   let checkinToken = ''
+  let verifyToken = '' // #v=<token> จาก QR บนกระดาษ — หน้าตรวจสถานะเอกสาร ไม่ต้อง login
   let formLaunch = null
   let focus = { kpi: '', risk: '', cal: '', sup: '' } // เปิดรายการเฉพาะเมื่อมาจากงานของฉัน/เตรียม Audit
   let inboxRefresh = 0
@@ -58,6 +61,7 @@
     ] },
     { group: 'ติดตามงาน', items: [
       ['dcr', 'clipboard-check', 'คำขอเปลี่ยนแปลงเอกสาร'],
+      ['rev', 'shield-check', 'ควบคุม Rev. / สำเนา'],
       ['ack', 'circle-check', 'การรับทราบเอกสาร'],
       ['tm', 'user', 'Training matrix'],
       ['forms', 'clipboard-list', 'บันทึกแบบฟอร์ม'],
@@ -110,11 +114,12 @@
   onMount(async () => {
     const hash = location.hash || ''
     if (hash.startsWith('#checkin=')) checkinToken = decodeURIComponent(hash.slice('#checkin='.length))
+    if (hash.startsWith('#v=')) verifyToken = decodeURIComponent(hash.slice('#v='.length))
     const onUnauth = () => { me = null }
     window.addEventListener('iso-unauth', onUnauth)
     try { const t = localStorage.getItem('activeTab'); if (t && TABS.includes(t)) tab = t } catch (e) {}
     try { slim = localStorage.getItem('sidebarSlim') === '1' } catch (e) {}
-    if (!checkinToken && localStorage.getItem('isoToken')) {
+    if (!checkinToken && !verifyToken && localStorage.getItem('isoToken')) {
       try {
         const m = await api.me()
         me = m.user
@@ -210,6 +215,8 @@
 
 {#if checkinToken}
   <Checkin token={checkinToken} />
+{:else if verifyToken}
+  <Verify token={verifyToken} />
 {:else if !me}
   <Login onOk={loggedIn} />
 {:else if me.mustChangePin}
@@ -313,6 +320,8 @@
         <Register {docs} {jump} on:open={open} />
       {:else if tab === 'dcr'}
         <Changes {me} refresh={dcrRefresh} on:open={openChange} />
+      {:else if tab === 'rev'}
+        {#key tabKey}<RevControl {me} refresh={dcrRefresh} on:open={open} />{/key}
       {:else if tab === 'tm'}
         <TrainingMatrix {me} {docs} on:open={open} />
       {:else if tab === 'ack'}

@@ -11,6 +11,8 @@
   import ChangePanel from './ChangePanel.svelte'
   import OfficeEdit from './OfficeEdit.svelte'
   import DocAcks from './DocAcks.svelte'
+  import DocCopies from './DocCopies.svelte'
+  import IssueCopyDialog from './IssueCopyDialog.svelte'
   import DecisionDialog from './DecisionDialog.svelte'
   import Icon from './Icon.svelte'
 
@@ -65,6 +67,12 @@
   $: canObsolete = !obsolete && !openChange && (me?.role === 'approver' || me?.role === 'admin')
   $: canReinstate = obsolete && me?.role === 'admin'
   $: canManage = canChange || canObsolete
+  // ควบคุมฉบับ (7.5.3.2): ดาวน์โหลดต้นฉบับได้เฉพาะฉบับปัจจุบันที่ยังใช้งาน — ผู้ควบคุมเอกสารดาวน์โหลดฉบับเก่าได้ (ฝั่ง API ตรวจซ้ำ)
+  $: isDcc = ['reviewer', 'approver', 'admin'].includes(me?.role)
+  $: canDownload = (v) => isDcc || (v === latestVer && !obsolete)
+  $: canIssueCopy = isDcc && isLatest && !obsolete && !!content
+  const DL_TITLE = 'ไฟล์ที่ดาวน์โหลดถูกบันทึกเป็นสำเนาของคุณ — เมื่อออก Rev. ใหม่ ระบบจะแจ้งให้ลบไฟล์เก่า'
+  let issuing = false
   $: shownChange =changes.find((c) => c.id === selChange) || openChange || changes[0] || null
 
   function askConfirm(message, run) {
@@ -97,7 +105,7 @@
   onDestroy(() => window.removeEventListener('keydown', onKey))
 
   function onKey(e) {
-    if (e.key === 'Escape' && !signing && !confirmAction && !statusAct && !gEdit) close()
+    if (e.key === 'Escape' && !signing && !confirmAction && !statusAct && !gEdit && !issuing) close()
   }
 
   /** มีรอบแก้ไขค้างอยู่ (เช่น รีเฟรชหน้าระหว่างแก้) → เปิดตัวแก้ไขต่อให้เลย งานที่บันทึกไว้ไม่หาย */
@@ -299,9 +307,10 @@
       <button class={tab === 'hist' ? 'active' : ''} on:click={() => (tab = 'hist')}>ประวัติเวอร์ชัน ({meta?.versions.length || 0})</button>
       <button class={tab === 'dcr' ? 'active' : ''} on:click={() => (tab = 'dcr')}>คำขอเปลี่ยนแปลง ({changes.length}){#if openChange} •{/if}</button>
       <button class={tab === 'ack' ? 'active' : ''} on:click={() => { tab = 'ack'; loadAcks() }}>การแจกจ่าย/รับทราบ{#if myAck} •{/if}</button>
+      <button class={tab === 'copies' ? 'active' : ''} on:click={() => (tab = 'copies')}>สำเนา</button>
       <span class="grow"></span>
       {#if !loading && tab === 'doc' && meta}
-        {#if content}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
+        {#if content && canDownload(ver)}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download title={DL_TITLE}><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
         {#if editing}
           <EditActions {editing} {dirty} updateLabel="ส่งขออนุมัติ" on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
         {:else if manage}
@@ -349,6 +358,9 @@
             <span class="read-mode inline-flex items-center gap-1.5"><Icon name="eye" size={14} /> โหมดอ่าน</span>
             <span class="mut">อ่านอย่างเดียว — ต้องการแก้ไขให้กด “{canWebOffice ? 'แก้ไขเอกสาร' : 'ขอแก้ไขเอกสาร'}” (ผ่านคำขอ DCR และการอนุมัติ)</span>
             <span class="grow"></span>
+            {#if canIssueCopy}
+              <button class="mbtn gh inline-flex items-center gap-1.5" title="พิมพ์ไปใช้หน้างาน — ประทับเลขสำเนา + QR และติดตามเรียกคืนเมื่อออก Rev. ใหม่" on:click={() => (issuing = true)}><Icon name="printer" size={14} /> พิมพ์สำเนาควบคุม</button>
+            {/if}
             {#if doc.type === 'FM'}
               <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'new' })}><Icon name="plus" size={14} /> กรอกแบบฟอร์มใหม่</button>
               <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'list' })}>บันทึกที่กรอกแล้ว</button>
@@ -383,7 +395,7 @@
             {#if canObsolete}
               <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (statusAct = 'obsolete')}><Icon name="x" size={14} /> ยกเลิกใช้เอกสาร</button>
             {/if}
-            {#if content}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
+            {#if content && canDownload(ver)}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download title={DL_TITLE}><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
             {#if doc.type === 'FM'}
               <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'new' })}><Icon name="plus" size={14} /> กรอกแบบฟอร์มใหม่</button>
               <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'list' })}>บันทึกที่กรอกแล้ว</button>
@@ -411,7 +423,7 @@
           {#if !isLatest}
             <div class="ver-warn">
               <Icon name="alert-triangle" size={16} />
-              <span>กำลังดูเวอร์ชันเก่า (v{ver}) ซึ่งไม่ควรนำไปใช้งานจริง — เวอร์ชันล่าสุดคือ <b>v{latestVer}</b></span>
+              <span>กำลังดูเวอร์ชันเก่า (v{ver}) ซึ่งไม่ควรนำไปใช้งานจริง — เวอร์ชันล่าสุดคือ <b>v{latestVer}</b> · หน้าเอกสารประทับ SUPERSEDED{#if !isDcc} และดาวน์โหลดไฟล์ต้นฉบับไม่ได้{/if}</span>
               <button class="vw-btn" on:click={() => load(latestVer)}>ไปเวอร์ชันล่าสุด</button>
             </div>
           {/if}
@@ -460,7 +472,7 @@
               {/if}
               <button class="mbtn" on:click={() => uploadInput.click()}>แนบไฟล์ขอแก้ไข</button>
             {/if}
-            <a class="mbtn gh" href={fileUrl(doc.code, v.version, true)} download>ดาวน์โหลด</a>
+            {#if canDownload(v.version)}<a class="mbtn gh" href={fileUrl(doc.code, v.version, true)} download>ดาวน์โหลด</a>{/if}
           </svelte:fragment>
         </ChangeHistory>
 
@@ -494,12 +506,14 @@
                   {:else}
                     <span class="mnote">ข้อมูลเก่า — ใช้เพื่ออ้างอิงเท่านั้น</span>
                   {/if}
-                  <a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, v.version, true)} download><Icon name="download" size={14} /> ดาวน์โหลด</a>
+                  {#if canDownload(v.version)}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, v.version, true)} download><Icon name="download" size={14} /> ดาวน์โหลด</a>{/if}
                 </div>
               </div>
             </div>
           {/each}
         </div>
+      {:else if tab === 'copies' && meta}
+        {#key issuing}<DocCopies {doc} {me} rev={meta.rev || doc.rev} canIssue={canIssueCopy} />{/key}
       {:else if tab === 'ack' && meta}
         {#if ackData}<DocAcks data={ackData} code={doc.code} on:changed={(e) => (ackData = e.detail)} />{:else}<div class="loadwrap"><span class="spin"></span></div>{/if}
       {:else if tab === 'dcr' && meta}
@@ -539,6 +553,10 @@
         on:confirm={doSave}
         on:cancel={cancelSign}
       />
+    {/if}
+
+    {#if issuing}
+      <IssueCopyDialog {doc} rev={meta?.rev || doc.rev} on:close={() => (issuing = false)} />
     {/if}
 
     {#if acking && myAck}

@@ -1,10 +1,11 @@
 // แสดงเอกสาร Word/Excel ให้เหมือนต้นฉบับ: แปลงเป็น PDF ด้วย LibreOffice (Gotenberg) แล้วเก็บไว้ใช้ซ้ำ
 // แคชตาม SHA-256 ของไฟล์ (docs_root/pdfcache/<sha>.pdf) — แปลงครั้งเดียวต่อเนื้อหาไฟล์ ไม่ผูกกับชื่อ/เวอร์ชัน
 // ตั้งที่อยู่ Gotenberg ด้วย env GOTENBERG_URL (ค่าเริ่มต้น http://127.0.0.1:3030)
+// เอกสารในทะเบียนประทับตราสถานะ Rev. + QR ทุกหน้าตอนส่งออก (revcontrol::view_stamp) — แคชเก็บเฉพาะ PDF ที่ยังไม่ประทับ
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::Response,
     Extension,
 };
@@ -12,7 +13,7 @@ use std::{collections::HashMap, fs, path::PathBuf, time::Duration};
 
 use sha2::{Digest, Sha256};
 
-use crate::{acks, doccontrol, eform, err, pct, S};
+use crate::{acks, doccontrol, eform, err, pct, revcontrol, stamp, S};
 
 fn sha_hex(b: &[u8]) -> String { Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect() }
 
@@ -66,16 +67,22 @@ pub(crate) fn pdf_response(pdf: Vec<u8>, name: &str) -> Response {
         .unwrap()
 }
 
-/// GET /api/docs/:code/pdf?v= — เอกสารในทะเบียน
-pub async fn doc_pdf(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>, Extension(u): Extension<eform::AuthUser>) -> Response {
+/// GET /api/docs/:code/pdf?v= — เอกสารในทะเบียน (Word/Excel แปลงเป็น PDF · PDF เดิมส่งตามไฟล์) พร้อมตราประทับสถานะ Rev.
+pub async fn doc_pdf(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>, Extension(u): Extension<eform::AuthUser>, headers: HeaderMap) -> Response {
     let (v, abs, ext, filename) = match crate::resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
-    if !convertible(&ext) { return err(StatusCode::BAD_REQUEST, "ไฟล์ชนิดนี้ไม่ต้องแปลงเป็น PDF"); }
+    if !convertible(&ext) && ext != "pdf" { return err(StatusCode::BAD_REQUEST, "ไฟล์ชนิดนี้ไม่ต้องแปลงเป็น PDF"); }
     acks::mark_opened(&st, &u, &code, v).await;
     let name = doccontrol::download_name(&st, &code, v, &filename).await;
     let title = st.by_code.get(&code).map(|d| format!("{code} {}", d["name"].as_str().unwrap_or(""))).unwrap_or_else(|| code.clone());
-    match pdf_bytes(&st, &abs, &ext, title.trim()).await {
-        Ok(pdf) => pdf_response(pdf, &name),
-        Err(e) => err(StatusCode::BAD_GATEWAY, &e),
+    let pdf = if ext == "pdf" { fs::read(&abs).map_err(|e| format!("อ่านไฟล์ไม่ได้: {e}")) } else { pdf_bytes(&st, &abs, &ext, title.trim()).await };
+    let pdf = match pdf { Ok(p) => p, Err(e) => return err(StatusCode::BAD_GATEWAY, &e) };
+    let Some(s) = revcontrol::view_stamp(&st, &u, &code, v, &headers).await else { return pdf_response(pdf, &name) };
+    // ประทับไม่ได้ (PDF เข้ารหัส/เสียหาย) → ยังเปิดอ่านได้ แต่ไม่มีตรา
+    let original = pdf.clone();
+    match tokio::task::spawn_blocking(move || stamp::apply(&pdf, &s)).await {
+        Ok(Ok(b)) => pdf_response(b, &name),
+        Ok(Err(e)) => { eprintln!("  ⚠ ประทับตรา {code} v{v} ไม่ได้: {e}"); pdf_response(original, &name) }
+        Err(_) => pdf_response(original, &name),
     }
 }
 
