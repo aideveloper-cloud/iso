@@ -414,7 +414,7 @@ pub struct EmpItem {
 pub struct EmpBody {
     empCode: Option<String>, nameTh: Option<String>, nameEn: Option<String>, position: Option<String>,
     dept: Option<String>, role: Option<String>, status: Option<String>, pin: Option<String>, managerCode: Option<String>,
-    employees: Option<Vec<EmpItem>>, csv: Option<String>,
+    employees: Option<Vec<EmpItem>>, csv: Option<String>, create: Option<bool>,
 }
 
 fn valid_role(r: &str) -> bool { matches!(r, "preparer" | "reviewer" | "approver" | "admin" | "viewer") }
@@ -469,6 +469,15 @@ pub async fn employees_save(State(st): State<S>, Extension(u): Extension<AuthUse
             n += 1;
         }
     } else if let Some(code) = b.empCode.clone() {
+        // เพิ่มผู้ใช้ใหม่: ห้ามทับรหัสที่มีอยู่แล้ว (จะรีเซ็ต PIN/สิทธิ์ของคนเดิมโดยไม่ตั้งใจ) และต้องตั้ง PIN เริ่มต้น
+        if b.create == Some(true) {
+            let code = code.trim();
+            if code.is_empty() || b.nameTh.as_deref().unwrap_or("").trim().is_empty() { return err(StatusCode::BAD_REQUEST, "ต้องกรอกรหัสพนักงานและชื่อ"); }
+            if b.pin.is_none() { return err(StatusCode::BAD_REQUEST, "ผู้ใช้ใหม่ต้องตั้ง PIN เริ่มต้น 6 หลัก"); }
+            if client.query_opt("SELECT 1 FROM employees WHERE emp_code=$1", &[&code]).await.ok().flatten().is_some() {
+                return err(StatusCode::CONFLICT, &format!("รหัส {code} มีอยู่แล้ว — ใช้ปุ่มแก้ไขแทน"));
+            }
+        }
         // กันระบบไม่มีผู้ดูแล: ห้ามลดสิทธิ์/ปิดบัญชี admin คนสุดท้ายที่ยังใช้งาน
         let demote = b.role.as_deref().map(|r| r != "admin").unwrap_or(false) || b.status.as_deref() == Some("inactive");
         if demote {

@@ -21,21 +21,33 @@
   $: counts = Object.fromEntries(ROLE_KEYS.map((r) => [r, list.filter((e) => e.status === 'active' && e.role === r).length]))
 
   function open(e) { edit = { ...e, pin: '' }; editErr = '' }
+  function openNew() {
+    edit = { isNew: true, empCode: '', nameTh: '', nameEn: '', position: '', dept: '', role: 'preparer', status: 'active', managerCode: '', pin: '' }
+    editErr = ''
+  }
   async function setAuditor(e, on) {
     const r = await api.iaSetAuditor(e.empCode, on)
     msg = r.ok ? `${on ? 'ขึ้นทะเบียน' : 'ถอน'} ${e.nameTh} ${on ? 'เป็น' : 'จาก'}ผู้ตรวจติดตามภายในแล้ว` : (r.body.error || 'บันทึกไม่สำเร็จ')
     load()
   }
   async function save() {
+    if (edit.isNew) {
+      edit.empCode = (edit.empCode || '').trim()
+      if (!edit.empCode || !(edit.nameTh || '').trim()) { editErr = 'กรอกรหัสพนักงานและชื่อ-สกุล'; return }
+      if (list.some((e) => e.empCode === edit.empCode)) { editErr = `รหัส ${edit.empCode} มีอยู่แล้ว — ใช้ปุ่มแก้ไขแทน`; return }
+      if (!edit.pin) { editErr = 'ผู้ใช้ใหม่ต้องตั้ง PIN เริ่มต้น (ระบบจะให้เปลี่ยนเมื่อเข้าสู่ระบบครั้งแรก)'; return }
+    }
     if (edit.pin && !/^\d{6}$/.test(edit.pin)) { editErr = 'PIN ใหม่ต้องเป็นตัวเลข 6 หลัก'; return }
     saving = true
     editErr = ''
-    const payload = { empCode: edit.empCode, nameTh: edit.nameTh, nameEn: edit.nameEn, position: edit.position, dept: edit.dept, role: edit.role, status: edit.status, managerCode: edit.managerCode }
+    const payload = { create: !!edit.isNew, empCode: edit.empCode, nameTh: edit.nameTh, nameEn: edit.nameEn, position: edit.position, dept: edit.dept, role: edit.role, status: edit.status, managerCode: edit.managerCode }
     if (edit.pin) payload.pin = edit.pin
     const r = await api.employeeSave(payload)
     saving = false
     if (!r.ok) { editErr = r.body.error || 'บันทึกไม่สำเร็จ'; return }
-    msg = `บันทึก ${edit.empCode} ${edit.nameTh} แล้ว — สิทธิ์ใหม่มีผลทันทีในคำขอถัดไป`
+    msg = edit.isNew
+      ? `เพิ่มผู้ใช้ ${edit.empCode} ${edit.nameTh} แล้ว — เข้าสู่ระบบด้วย PIN เริ่มต้น และต้องตั้ง PIN ใหม่ครั้งแรก`
+      : `บันทึก ${edit.empCode} ${edit.nameTh} แล้ว — สิทธิ์ใหม่มีผลทันทีในคำขอถัดไป`
     edit = null
     load()
   }
@@ -59,6 +71,7 @@
   <div class="controls">
     <div class="search-wrap"><span class="search-ic"><Icon name="search" size={16} /></span><input placeholder="ค้นหา รหัส ชื่อ ตำแหน่ง แผนก..." bind:value={q} /></div>
     <label class="issue-toggle"><input type="checkbox" bind:checked={showInactive} /> แสดงบัญชีที่ปิดใช้งาน</label>
+    <button class="mbtn accent inline-flex items-center gap-1" on:click={openNew}><Icon name="plus" size={15} /> เพิ่มผู้ใช้</button>
   </div>
 
   <div class="sec !p-0 overflow-auto mb-4">
@@ -94,7 +107,12 @@
   {#if edit}
     <div class="sgbg" on:mousedown|self={() => (edit = null)}>
       <div class="sgbox">
-        <h3>{edit.empCode} · {edit.nameTh}</h3>
+        {#if edit.isNew}
+          <h3>เพิ่มผู้ใช้ใหม่</h3>
+          <div class="sgf"><label>รหัสพนักงาน</label><input bind:value={edit.empCode} autocomplete="off" /></div>
+        {:else}
+          <h3>{edit.empCode} · {edit.nameTh}</h3>
+        {/if}
         <div class="sgf"><label>ชื่อ-สกุล</label><input bind:value={edit.nameTh} /></div>
         <div class="grid grid-cols-2 gap-3">
           <div class="sgf"><label>ตำแหน่ง</label><input bind:value={edit.position} /></div>
@@ -102,7 +120,7 @@
         </div>
         <div class="sgf"><label>บทบาท</label><select bind:value={edit.role}>{#each ROLE_KEYS as r}<option value={r}>{ROLES[r]}</option>{/each}</select></div>
         <div class="sgf"><label>สถานะบัญชี</label><select bind:value={edit.status}><option value="active">ใช้งาน</option><option value="inactive">ปิดใช้งาน</option></select></div>
-        <div class="sgf"><label>ตั้ง PIN ใหม่ (เว้นว่างถ้าไม่เปลี่ยน)</label><input bind:value={edit.pin} type="password" maxlength="6" inputmode="numeric" autocomplete="new-password" /></div>
+        <div class="sgf"><label>{edit.isNew ? 'PIN เริ่มต้น 6 หลัก (ผู้ใช้ต้องเปลี่ยนเมื่อเข้าครั้งแรก)' : 'ตั้ง PIN ใหม่ (เว้นว่างถ้าไม่เปลี่ยน)'}</label><input bind:value={edit.pin} type="password" maxlength="6" inputmode="numeric" autocomplete="new-password" /></div>
         {#if editErr}<div class="merr">{editErr}</div>{/if}
         <div class="sgact"><button class="mbtn gh" on:click={() => (edit = null)}>ยกเลิก</button><button class="mbtn accent" disabled={saving} on:click={save}>{saving ? 'กำลังบันทึก…' : 'บันทึก'}</button></div>
       </div>
