@@ -1075,6 +1075,7 @@ async fn main() {
         .route("/api/edit/:id/commit", axum::routing::post(editsession::commit))
         .route("/api/overview/edit", get(editsession::mine_overview).post(editsession::start_overview))
         .route("/api/public/edit/:token", get(editsession::public_get))
+        .route("/api/public/pdfsrc/:token", get(pdfview::office_src))
         .route("/api/public/office/:token", axum::routing::post(editsession::office_callback))
         .route("/api/public/checkin/:token", get(eform::checkin_info))
         .route("/api/public/verify/:token", get(revcontrol::verify))
