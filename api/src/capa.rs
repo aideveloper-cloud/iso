@@ -316,6 +316,14 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
     }
     if let Err(r) = save(&c, &a, b.version).await { return r; }
     step(&c, id, event, &u, &comment).await;
+    // ใบที่ยกเลิกไม่ถือว่าจัดการปัญหาแล้ว — ล้างเลขที่ใบในต้นทาง (KPI/ความเสี่ยง/ผู้ขาย/สอบเทียบ) ให้เปิดใบใหม่ได้และกลับมาเตือนอีก
+    if event == "cancel" {
+        let rf = s(&a, "refNo");
+        for sql in ["UPDATE kpi_results SET car_ref='' WHERE car_ref=$1", "UPDATE risks SET action_ref='' WHERE action_ref=$1",
+                    "UPDATE supplier_evals SET car_ref='' WHERE car_ref=$1", "UPDATE calibrations SET car_ref='' WHERE car_ref=$1"] {
+            let _ = c.execute(sql, &[&rf]).await;
+        }
+    }
     let _ = eform::audit(&c, &u, &format!("capa_{event}"), "action", &s(&a, "refNo"), &comment).await;
     detail_resp(&st, &u, id).await
 }

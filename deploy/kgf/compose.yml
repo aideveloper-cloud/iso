@@ -11,7 +11,6 @@ services:
     restart: unless-stopped
     environment:
       API_PORT: "8085"
-      CONVERTER_PORT: "8081"
       DOCS_ROOT: /data
       DATABASE_URL: host=kgf-postgres port=5432 user=iso password=${DB_PASSWORD:?ตั้ง DB_PASSWORD ใน .env} dbname=iso
       BACKUP_PG_CONTAINER: ""   # pg_dump ต่อ kgf-postgres ตรง (ไม่มี docker ใน container)
@@ -37,20 +36,7 @@ services:
     networks: [kgf]
     logging: &log { driver: json-file, options: { max-size: "10m", max-file: "3" } }
 
-  # converter ใช้ network เดียวกับ api — API เรียก converter ที่ 127.0.0.1:8081 เหมือนบน Windows
-  converter:
-    image: kgf/iso-converter:latest
-    pull_policy: never
-    container_name: iso-converter
-    restart: unless-stopped
-    network_mode: "service:api"
-    environment:
-      CONVERTER_PORT: "8081"
-    volumes:
-      - iso-data:/data:ro
-    logging: *log
-
-  # Word/Excel → PDF สำหรับหน้าอ่านเอกสาร · ฟอนต์ไทยของเอกสาร (Angsana ฯลฯ) อยู่ใน volume iso-fonts
+  # Excel/PowerPoint → PDF สำหรับหน้าอ่านเอกสาร (Word ใช้ ONLYOFFICE · ใช้ตัวนี้แทนเมื่อ ONLYOFFICE ไม่พร้อม) · ฟอนต์ไทยของเอกสาร (Angsana ฯลฯ) อยู่ใน volume iso-fonts
   pdf:
     image: gotenberg/gotenberg:8
     container_name: iso-pdf
@@ -89,7 +75,6 @@ services:
     environment:
       PORT: "8090"
       API_TARGET: http://iso-api:8085
-      CONV_TARGET: http://iso-api:8081
     ports: ["8001:8090"]
     networks: [kgf]
     logging: *log

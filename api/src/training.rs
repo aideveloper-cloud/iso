@@ -161,6 +161,16 @@ pub async fn summary(st: &S, c: &impl deadpool_postgres::GenericClient) -> Value
             "rate": if total == 0 { Value::Null } else { json!(((met as f64) / (total as f64) * 100.0).round() as i64) } })
 }
 
+/// หลักสูตรที่พนักงานคนนี้ยังขาด/หมดอายุ (ข้อกำหนดชนิดรับทราบเอกสารไปอยู่ในงาน "รับทราบเอกสาร" แล้ว) — ใช้ในกล่องงานของฉัน
+pub async fn my_gaps(st: &S, c: &impl deadpool_postgres::GenericClient, emp_code: &str) -> Vec<(String, String)> {
+    let Some(e) = employees(c, "").await.into_iter().find(|e| e.code == emp_code) else { return vec![] };
+    let f = facts(c).await;
+    active_reqs(c).await.iter().filter(|r| s(r, "kind") != "doc" && applies(r, &e)).filter_map(|r| {
+        let cl = cell(r, &e, &f, st);
+        matches!(cl["status"].as_str(), Some("missing" | "expired")).then(|| (s(r, "title"), s(&cl, "detail")))
+    }).collect()
+}
+
 // ---------- handlers ----------
 
 /// Training matrix (ผู้อนุมัติขึ้นไปเห็นทุกคน; คนอื่นเห็นเฉพาะของตนเอง)
@@ -240,6 +250,7 @@ pub async fn create_req(State(st): State<S>, Extension(u): Extension<AuthUser>, 
         &[&s(&v, "title"), &s(&v, "kind"), &s(&v, "keywords"), &s(&v, "docCode"), &s(&v, "targetType"), &s(&v, "target"), &v["validityMonths"].as_i64().unwrap_or(0), &s(&v, "clause"), &u.name, &now],
     ).await { Ok(r) => r.get(0), Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()) };
     let _ = eform::audit(&c, &u, "training_req", "training_req", &id.to_string(), &s(&v, "title")).await;
+    if s(&v, "kind") == "doc" { crate::acks::on_training_req(&st, &c, &s(&v, "docCode"), &u.name).await; }
     Json(json!({ "ok": true, "id": id })).into_response()
 }
 
@@ -253,6 +264,7 @@ pub async fn update_req(Path(id): Path<i64>, State(st): State<S>, Extension(u): 
         &[&id, &s(&v, "title"), &s(&v, "kind"), &s(&v, "keywords"), &s(&v, "docCode"), &s(&v, "targetType"), &s(&v, "target"), &v["validityMonths"].as_i64().unwrap_or(0), &s(&v, "clause"), &v["active"].as_bool().unwrap_or(true), &now_iso()],
     ).await;
     let _ = eform::audit(&c, &u, if v["active"] == json!(false) { "training_req_off" } else { "training_req_edit" }, "training_req", &id.to_string(), &s(&v, "title")).await;
+    if s(&v, "kind") == "doc" && v["active"] != json!(false) { crate::acks::on_training_req(&st, &c, &s(&v, "docCode"), &u.name).await; }
     Json(json!({ "ok": true })).into_response()
 }
 

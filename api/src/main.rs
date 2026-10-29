@@ -1,6 +1,6 @@
 // iso-api — API หลัก (Rust + Axum)
 //   จัดการเอกสาร ISO: ทะเบียน, เวอร์ชัน+ลายเซ็น (PostgreSQL), เนื้อหา (xlsx/docx/pdf), บันทึกเวอร์ชัน,
-//   สรุปแดชบอร์ด, คลังภาพรวมองค์กร  ·  แปลง docx->HTML โดยเรียก Go converter
+//   สรุปแดชบอร์ด, คลังภาพรวมองค์กร  ·  หน้าอ่านแสดง PDF (pdfview.rs) · แก้ไขผ่าน ONLYOFFICE (editsession.rs)
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Extension, Path, Query, State},
@@ -13,7 +13,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use deadpool_postgres::{ManagerConfig, Pool, RecyclingMethod};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{collections::HashMap, fs, net::TcpStream, path::PathBuf, sync::{Arc, Mutex}, time::Duration};
+use std::{collections::HashMap, fs, path::PathBuf, sync::{Arc, Mutex}, time::Duration};
 use tokio_postgres::NoTls;
 
 mod acks;
@@ -24,6 +24,7 @@ mod capa;
 mod doccontrol;
 mod editsession;
 mod eform;
+mod formhtml;
 mod internalaudit;
 mod kpi;
 mod mreview;
@@ -45,7 +46,6 @@ pub(crate) struct AppState {
     pub(crate) clauses: Value,
     pub(crate) docs_root: PathBuf,
     pub(crate) storage: PathBuf,
-    pub(crate) conv_port: String,
     pub(crate) db: Pool,
     pub(crate) login_hits: Mutex<HashMap<String, Vec<i64>>>,
 }
@@ -53,7 +53,6 @@ pub(crate) type S = Arc<AppState>;
 
 // ---------- helpers ----------
 fn ext_of(d: &Value) -> String { d["ext"].as_str().unwrap_or("").to_lowercase() }
-fn editable(e: &str) -> bool { matches!(e, "xls" | "xlsx" | "docx") }
 fn previewable(e: &str) -> bool {
     matches!(e, "pdf" | "jpg" | "jpeg" | "png" | "docx" | "xls" | "xlsx")
 }
@@ -167,8 +166,6 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS versions(
      CREATE INDEX IF NOT EXISTS idx_a_kind ON actions(kind);";
 
 const VCOLS: &str = "version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at,rev,effective_date,change_id,sha256,signer_code,approved_by,approved_at";
-/// คอลัมน์ของตาราง versions ในไฟล์ SQLite รุ่นเก่า (ใช้ตอน migrate เท่านั้น)
-const LEGACY_VCOLS: &str = "version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at";
 
 fn make_pool() -> Pool {
     let url = std::env::var("DATABASE_URL")
@@ -213,47 +210,6 @@ async fn init_db(pool: &Pool) {
             }
         }
     }
-}
-
-// migrate ข้อมูลเวอร์ชันเก่าจาก SQLite (versions.db) ครั้งเดียว ถ้าตาราง Postgres ยังว่าง
-async fn migrate_from_sqlite(pool: &Pool, sqlite_path: &PathBuf) {
-    if !sqlite_path.exists() { return; }
-    let client = match pool.get().await { Ok(c) => c, Err(_) => return };
-    let existing: i64 = client
-        .query_one("SELECT COUNT(*) FROM versions", &[])
-        .await
-        .map(|r| r.get(0))
-        .unwrap_or(0);
-    if existing > 0 { return; } // มีข้อมูลแล้ว ไม่ต้อง migrate
-
-    // อ่านทุกแถวจาก SQLite
-    type Row = (String, i64, String, String, Option<String>, Option<String>, i64, String, String, String, String, String, String);
-    let rows: Vec<Row> = match rusqlite::Connection::open(sqlite_path) {
-        Ok(c) => {
-            let mut stmt = match c.prepare(&format!("SELECT doc_code,{LEGACY_VCOLS} FROM versions")) {
-                Ok(s) => s,
-                Err(_) => return,
-            };
-            let it = stmt.query_map([], |r| {
-                Ok((
-                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?,
-                    r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?,
-                ))
-            });
-            match it { Ok(m) => m.filter_map(|x| x.ok()).collect(), Err(_) => return }
-        }
-        Err(_) => return,
-    };
-    if rows.is_empty() { return; }
-    let n = rows.len();
-    for r in rows {
-        let _ = client.execute(
-            "INSERT INTO versions(doc_code,version,filename,ext,stored_name,origin_path,size,source,note,signer_name,signer_role,signed_at,created_at)
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (doc_code,version) DO NOTHING",
-            &[&r.0,&r.1,&r.2,&r.3,&r.4,&r.5,&r.6,&r.7,&r.8,&r.9,&r.10,&r.11,&r.12],
-        ).await;
-    }
-    println!("  📦 migrate ข้อมูลจาก SQLite สำเร็จ: {n} เวอร์ชัน");
 }
 
 async fn ensure_original(st: &S, code: &str) {
@@ -503,34 +459,12 @@ fn version_abs(st: &S, stored: Option<String>, origin: Option<String>, fallback_
     }
 }
 
-// ---------- เรียก Go converter (HTTP ง่าย ๆ ผ่าน TCP) ----------
-pub(crate) async fn call_converter(port: &str, path_route: &str, body: &str) -> Result<Value, String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut s = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}")).await.map_err(|e| e.to_string())?;
-    let req = format!(
-        "POST {path_route} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.as_bytes().len()
-    );
-    s.write_all(req.as_bytes()).await.map_err(|e| e.to_string())?;
-    let mut buf = Vec::new();
-    s.read_to_end(&mut buf).await.map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&buf);
-    let idx = text.find("\r\n\r\n").ok_or("bad response")?;
-    serde_json::from_str(&text[idx + 4..]).map_err(|e| format!("parse: {e}"))
-}
-
 // ---------- handlers ----------
 async fn health(State(st): State<S>) -> Json<Value> {
-    let up = "127.0.0.1:".to_string() + &st.conv_port;
-    let conv = up
-        .parse()
-        .ok()
-        .and_then(|a| TcpStream::connect_timeout(&a, Duration::from_millis(400)).ok())
-        .is_some();
     let db_ok = st.db.get().await.is_ok();
     let pdf_ok = pdfview::ready().await;
     let office = editsession::office_health().await;
-    Json(json!({ "service": "iso-api (Rust/Axum)", "api": "ok", "db": if db_ok {"ok"} else {"down"}, "converter": if conv {"ok"} else {"down"}, "pdf": if pdf_ok {"ok"} else {"down"}, "office": office }))
+    Json(json!({ "service": "iso-api (Rust/Axum)", "api": "ok", "db": if db_ok {"ok"} else {"down"}, "pdf": if pdf_ok {"ok"} else {"down"}, "office": office }))
 }
 
 async fn docs_list(State(st): State<S>) -> Json<Value> {
@@ -548,7 +482,6 @@ async fn docs_list(State(st): State<S>) -> Json<Value> {
             let file_exists = !rel.is_empty() && st.docs_root.join(rel).exists();
             let marked_missing = d["missing"].as_bool().unwrap_or(false);
             let mut o = d.clone();
-            o["editable"] = json!(editable(&e));
             o["previewable"] = json!(previewable(&e));
             o["latestVersion"] = json!(latest);
             o["versionCount"] = json!(count);
@@ -570,7 +503,7 @@ async fn versions(Path(code): Path<String>, State(st): State<S>) -> Response {
     let file_exists = !rel.is_empty() && st.docs_root.join(rel).exists();
     let mut o = json!({
         "code": code, "name": doc["name"], "ext": e,
-        "editable": editable(&e), "previewable": previewable(&e),
+        "previewable": previewable(&e),
         "fileExists": file_exists,
         "missing": doc["missing"].as_bool().unwrap_or(false) || !file_exists,
         "rev": doc["rev"], "eff": doc["eff"],
@@ -581,29 +514,11 @@ async fn versions(Path(code): Path<String>, State(st): State<S>) -> Response {
     Json(o).into_response()
 }
 
-async fn preview_abs(st: &S, abs: &PathBuf, ext: &str) -> Value {
-    let mut v = preview_kind(st, abs, ext).await;
-    // หน้าอ่านใช้ PDF (เหมือนต้นฉบับ) — HTML/ตารางยังใช้สำหรับแก้บนเว็บ และเป็นทางสำรองถ้าแปลง PDF ไม่ได้
-    // ไฟล์ PDF เดิมก็เปิดผ่าน /pdf เพื่อให้มีตราประทับสถานะ Rev. + QR เหมือนเอกสารอื่น
-    if pdfview::convertible(ext) || ext == "pdf" { v["pdf"] = json!(true); }
-    v
-}
-
-async fn preview_kind(st: &S, abs: &PathBuf, ext: &str) -> Value {
+/// วิธีแสดงไฟล์บนหน้าเว็บ: Office/PDF → PDF ที่แปลงแล้ว (Word ใช้ ONLYOFFICE ตัวเดียวกับตัวแก้ไข) พร้อมตราประทับ · รูปภาพ → แสดงตรง
+pub(crate) fn preview_abs(ext: &str) -> Value {
     match ext {
-        "xls" | "xlsx" => match fs::read(abs) {
-            Ok(b) => json!({ "kind": "sheet", "ext": ext, "data": B64.encode(b) }),
-            Err(e) => json!({ "kind": "download", "ext": ext, "reason": format!("อ่านไฟล์ไม่ได้: {e}") }),
-        },
-        "docx" => {
-            let body = json!({ "path": abs.to_string_lossy(), "ext": "docx" }).to_string();
-            match call_converter(&st.conv_port, "/convert", &body).await {
-                Ok(v) if v["ok"] == json!(true) => json!({ "kind": "html", "ext": ext, "html": v["html"] }),
-                Ok(v) => json!({ "kind": "download", "ext": ext, "reason": format!("แปลงเอกสารไม่สำเร็จ: {}", v["error"].as_str().unwrap_or("ไม่ทราบสาเหตุ")) }),
-                Err(e) => json!({ "kind": "download", "ext": ext, "reason": format!("converter ไม่ตอบสนอง: {e}") }),
-            }
-        }
-        "pdf" | "jpg" | "jpeg" | "png" => json!({ "kind": "embed", "ext": ext }),
+        e if pdfview::convertible(e) || e == "pdf" => json!({ "kind": "pdf", "ext": ext }),
+        "jpg" | "jpeg" | "png" => json!({ "kind": "embed", "ext": ext }),
         _ => json!({ "kind": "download", "ext": ext, "reason": "ไฟล์ชนิดนี้เปิดอ่านบนหน้าเว็บไม่ได้ — กดดาวน์โหลดเพื่อเปิดด้วยโปรแกรมในเครื่อง" }),
     }
 }
@@ -690,11 +605,10 @@ async fn overview_file(Query(q): Query<HashMap<String, String>>, State(st): Stat
 
 async fn overview_content(Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
     let rel = q.get("path").cloned().unwrap_or_default();
-    let (abs, ext, name, code, ver) = match overview_live_file(&st, &rel, q.get("v").and_then(|v| v.parse().ok())).await { Ok(x) => x, Err(r) => return r };
-    let mut body = preview_abs(&st, &abs, &ext).await;
+    let (_, ext, name, code, ver) = match overview_live_file(&st, &rel, q.get("v").and_then(|v| v.parse().ok())).await { Ok(x) => x, Err(r) => return r };
+    let mut body = preview_abs(&ext);
     body["name"] = json!(name);
     body["path"] = json!(rel);
-    body["editable"] = json!(editable(&ext));
     if let Some(c) = code { body["docCode"] = json!(c); }
     if let Some(v) = ver { body["version"] = json!(v); }
     Json(body).into_response()
@@ -706,7 +620,7 @@ struct OverviewSaveReq {
     path: Option<String>,
     dataBase64: Option<String>,
     note: Option<String>,
-    /// อัปโหลดไฟล์ใหม่ (ชื่อไฟล์ที่เลือก) — ไม่ระบุ = แก้ไขบนเว็บ
+    /// ชื่อไฟล์ที่อัปโหลด
     filename: Option<String>,
 }
 
@@ -717,9 +631,9 @@ async fn overview_save(State(st): State<S>, Extension(u): Extension<eform::AuthU
         Ok(x) => x,
         Err(r) => return r,
     };
-    let upload = b.filename.as_deref().map(|f| !f.trim().is_empty()).unwrap_or(false);
-    if !upload && !editable(&ext) {
-        return err(StatusCode::BAD_REQUEST, "ไฟล์ชนิดนี้แก้ไขบนเว็บไม่ได้ — ใช้อัปโหลดไฟล์เวอร์ชันใหม่");
+    // แก้เนื้อหาไฟล์ใช้ตัวแก้ไขบนเว็บ (editsession) — ช่องนี้รับเฉพาะการอัปโหลดไฟล์เวอร์ชันใหม่
+    if b.filename.as_deref().map(|f| f.trim().is_empty()).unwrap_or(true) {
+        return err(StatusCode::BAD_REQUEST, "ระบุไฟล์ที่อัปโหลด — แก้เนื้อหาไฟล์ใช้ปุ่ม “แก้ไขเอกสาร”");
     }
     if let Some(code) = find_code_by_path(&st, &rel) {
         return err(StatusCode::CONFLICT, &format!("{code} เป็นเอกสารควบคุมในทะเบียน — ต้องส่งคำขอเปลี่ยนแปลงเอกสาร (DCR) เพื่อตรวจสอบและอนุมัติก่อน"));
@@ -736,14 +650,11 @@ async fn overview_save(State(st): State<S>, Extension(u): Extension<eform::AuthU
         Err(r) => return r,
     };
     let note = b.note.unwrap_or_default().trim().to_string();
-    let (vname, vext) = if upload {
-        let f: String = b.filename.unwrap_or_default().chars().filter(|c| *c != '/' && *c != '\\' && !c.is_control()).take(200).collect();
-        let e: String = f.rsplit('.').next().unwrap_or("").to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
-        if e.is_empty() { return err(StatusCode::BAD_REQUEST, "ไม่ทราบชนิดไฟล์ที่อัปโหลด"); }
-        (f, e)
-    } else { (name.clone(), ext.clone()) };
+    let vname: String = b.filename.unwrap_or_default().chars().filter(|c| *c != '/' && *c != '\\' && !c.is_control()).take(200).collect();
+    let vext: String = vname.rsplit('.').next().unwrap_or("").to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
+    if vext.is_empty() { return err(StatusCode::BAD_REQUEST, "ไม่ทราบชนิดไฟล์ที่อัปโหลด"); }
     let nv = NewVersion {
-        code: &code, filename: &vname, ext: &vext, source: if upload { "upload" } else { "edit" }, note: &note,
+        code: &code, filename: &vname, ext: &vext, source: "upload", note: &note,
         signer_code: &u.emp_code, signer_name: &u.name, signer_role: &u.position,
         rev: "", effective_date: "", change_id: 0, approved_by: "", approved_at: "",
     };
@@ -754,7 +665,7 @@ async fn overview_save(State(st): State<S>, Extension(u): Extension<eform::AuthU
         Err(r) => return r,
     };
     if let Ok(client) = st.db.get().await {
-        let _ = eform::audit(&client, &u, if upload { "overview_upload" } else { "overview_save" }, "overview_file", &rel, &format!("v{version} {vname}")).await;
+        let _ = eform::audit(&client, &u, "overview_upload", "overview_file", &rel, &format!("v{version} {vname}")).await;
     }
 
     Json(json!({
@@ -768,72 +679,6 @@ async fn overview_save(State(st): State<S>, Extension(u): Extension<eform::AuthU
         "version": v,
         "latestVersion": version,
     })).into_response()
-}
-
-async fn stats(State(st): State<S>) -> Json<Value> {
-    let counts = counts_by_doc(&st).await;
-    let (mut by_type, mut by_ext) = (serde_json::Map::new(), serde_json::Map::new());
-    let mut by_dept: HashMap<String, (i64, i64, i64)> = HashMap::new(); // total, revised, versions
-    for d in &st.manifest {
-        let t = d["type"].as_str().unwrap_or("").to_string();
-        *by_type.entry(t).or_insert(json!(0)) = json!(by_type.get(d["type"].as_str().unwrap_or("")).and_then(|x| x.as_i64()).unwrap_or(0) + 1);
-        let e = ext_of(d);
-        *by_ext.entry(e.clone()).or_insert(json!(0)) = json!(by_ext.get(&e).and_then(|x| x.as_i64()).unwrap_or(0) + 1);
-        let dept = d["deptName"].as_str().unwrap_or("").to_string();
-        let ent = by_dept.entry(dept).or_insert((0, 0, 0));
-        ent.0 += 1;
-        if let Some((latest, _)) = counts.get(d["code"].as_str().unwrap_or("")) {
-            if *latest > 1 { ent.1 += 1; ent.2 += latest - 1; }
-        }
-    }
-    let by_dept_json: serde_json::Map<String, Value> = by_dept
-        .into_iter()
-        .map(|(k, v)| (k, json!({ "total": v.0, "revised": v.1, "versions": v.2 })))
-        .collect();
-    let revised_docs = counts.values().filter(|(l, _)| *l > 1).count();
-
-    // signers + recent (จากเวอร์ชันที่ไม่ใช่ original)
-    let all: Vec<(String, String, String, String, String, String, i64)> = {
-        match st.db.get().await {
-            Ok(client) => match client
-                .query("SELECT signer_name,signer_role,signed_at,doc_code,note,source,version FROM versions WHERE source!='original' ORDER BY created_at DESC", &[])
-                .await
-            {
-                Ok(rows) => rows.iter().map(|r| (
-                    r.get::<_, String>(0), r.get::<_, String>(1), r.get::<_, String>(2),
-                    r.get::<_, String>(3), r.get::<_, String>(4), r.get::<_, String>(5), r.get::<_, i64>(6),
-                )).collect(),
-                Err(_) => vec![],
-            },
-            Err(_) => vec![],
-        }
-    };
-    let total_edits = all.len();
-    let mut signers: HashMap<String, (String, i64, String)> = HashMap::new();
-    for (nm, role, at, ..) in &all {
-        let e = signers.entry(nm.clone()).or_insert((role.clone(), 0, at.clone()));
-        e.1 += 1;
-        if at > &e.2 { e.2 = at.clone(); }
-    }
-    let mut signers_v: Vec<Value> = signers.iter().map(|(k, v)| json!({ "name": k, "role": v.0, "n": v.1, "last": v.2 })).collect();
-    signers_v.sort_by(|a, b| b["n"].as_i64().cmp(&a["n"].as_i64()));
-    let recent: Vec<Value> = all.iter().take(15).map(|(nm, role, at, code, note, source, ver)| {
-        let dn = st.by_code.get(code).and_then(|d| d["name"].as_str()).unwrap_or(code);
-        let dept = st.by_code.get(code).and_then(|d| d["deptName"].as_str()).unwrap_or("");
-        json!({ "signerName": nm, "signerRole": role, "signedAt": at, "code": code, "docName": dn, "dept": dept, "note": note, "source": source, "version": ver })
-    }).collect();
-
-    Json(json!({
-        "totalDocs": st.manifest.len(),
-        "revisedDocs": revised_docs,
-        "totalEdits": total_edits,
-        "editable": st.manifest.iter().filter(|d| editable(&ext_of(d))).count(),
-        "previewable": st.manifest.iter().filter(|d| previewable(&ext_of(d))).count(),
-        "unregistered": st.manifest.iter().filter(|d| d["unreg"].as_bool().unwrap_or(false)).count(),
-        "duplicates": st.manifest.iter().filter(|d| d["dup"].as_i64().unwrap_or(0) > 1).count(),
-        "byType": by_type, "byDept": by_dept_json, "byExt": by_ext,
-        "signers": signers_v, "recent": recent,
-    }))
 }
 
 async fn overview(State(st): State<S>) -> Json<Value> { Json(st.overview.clone()) }
@@ -880,14 +725,9 @@ async fn latest_by_doc(st: &S) -> HashMap<String, Value> {
 }
 
 async fn content(Path(code): Path<String>, Query(q): Query<HashMap<String, String>>, State(st): State<S>, Extension(u): Extension<eform::AuthUser>) -> Response {
-    let (ver, abs, ext, _fn) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
+    let (ver, _, ext, _) = match resolve(&st, &code, q.get("v")).await { Ok(x) => x, Err(r) => return r };
     acks::mark_opened(&st, &u, &code, ver).await;
-    // ตาราง Excel ส่งไฟล์ต้นฉบับทั้งไฟล์ (base64) — ฉบับเก่า/ยกเลิกใช้ให้คนทั่วไปดูเฉพาะ PDF ที่ประทับตรา
-    if matches!(ext.as_str(), "xls" | "xlsx") && revcontrol::authorize_original(&st, &u, &code, ver).await.is_err() {
-        return Json(json!({ "kind": "download", "ext": ext, "pdf": true, "version": ver,
-            "reason": "ฉบับนี้ไม่ใช่ฉบับใช้งาน — ดูได้เฉพาะ PDF ที่ประทับ SUPERSEDED/OBSOLETE" })).into_response();
-    }
-    let mut body = preview_abs(&st, &abs, &ext).await;
+    let mut body = preview_abs(&ext);
     body["version"] = json!(ver);
     Json(body).into_response()
 }
@@ -928,11 +768,9 @@ async fn main() {
 
     let pool = make_pool();
     init_db(&pool).await;
-    migrate_from_sqlite(&pool, &docs_root.join("versions.db")).await;
 
     let state: S = Arc::new(AppState {
         manifest, by_code, overview: overview_json, clauses, docs_root, storage,
-        conv_port: std::env::var("CONVERTER_PORT").unwrap_or_else(|_| "8081".into()),
         db: pool.clone(),
         login_hits: Mutex::new(HashMap::new()),
     });
@@ -964,6 +802,7 @@ async fn main() {
         .route("/api/changes/:id", get(doccontrol::detail))
         .route("/api/changes/:id/content", get(doccontrol::content))
         .route("/api/changes/:id/file", get(doccontrol::file))
+        .route("/api/changes/:id/pdf", get(doccontrol::pdf))
         .route("/api/changes/:id/act", axum::routing::post(doccontrol::act))
         .route("/api/changes/:id/resubmit", axum::routing::post(doccontrol::resubmit))
         .route("/api/changes/:id/cancel", axum::routing::post(doccontrol::cancel))
@@ -981,7 +820,6 @@ async fn main() {
         .route("/api/ai/docs/:code/review", axum::routing::post(aiassist::review_doc))
         .route("/api/ai/changes/:id/review", axum::routing::post(aiassist::review_change))
         .route("/api/ai/suggestions/:id/decide", axum::routing::post(aiassist::decide))
-        .route("/api/stats", get(stats))
         .route("/api/readiness", get(readiness::get))
         .route("/api/readiness/runs", get(readiness::runs).post(readiness::save_run))
         .route("/api/mr", get(mreview::list).post(mreview::create))

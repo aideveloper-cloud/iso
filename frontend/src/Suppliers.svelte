@@ -245,7 +245,7 @@
             <div class="grid grid-cols-2 gap-3">
               <div class="sgf"><label>สถานะหลังประเมิน</label>
                 {#if approver}<select bind:value={ev.status}><option value="">ตามที่แนะนำ ({STATUS[evRec]})</option>{#each Object.entries(STATUS) as [k, l]}<option value={k}>{l}</option>{/each}</select>
-                {:else}<div class="pt-1.5"><span class="status-badge {STATUS_CLS[evRec]}">{STATUS[evRec]}</span> <span class="mut text-[11.5px]">ตามผลประเมิน (ผู้ตรวจสอบขึ้นไปกำหนดต่างได้)</span></div>{/if}
+                {:else}<div class="pt-1.5"><span class="status-badge {STATUS_CLS[evRec]}">{STATUS[evRec]}</span> <span class="mut text-[11.5px]">ตามผลประเมิน (ผู้อนุมัติขึ้นไปกำหนดต่างได้)</span></div>{/if}
               </div>
               <div class="sgf"><label>ประเมินครั้งถัดไป</label>
                 {#if evStatus === 'blocked'}<div class="pt-1.5 mut text-[12.5px]">ระงับ — ไม่มีกำหนดประเมิน</div>

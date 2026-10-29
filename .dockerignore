@@ -3,7 +3,6 @@ data/
 api/target/
 frontend/node_modules/
 frontend/dist/
-converter/*.exe
 deploy/logs/
 .git/
 .claude/

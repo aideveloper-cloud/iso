@@ -45,7 +45,7 @@
 {:else}
   <div class="cat-head">
     <h2 class="cat-title inline-flex items-center gap-2"><Icon name="building" size={20} /> ทบทวนฝ่ายบริหาร</h2>
-    <p class="cat-desc">ISO 9001:2015 ข้อ 9.3 — ข้อมูลนำเข้า 13 หัวข้อดึงจากระบบจริง · มติและงานติดตาม · ลงนามผู้จัดทำ → ผู้ตรวจสอบ → ผู้อนุมัติ ด้วยบัญชีพนักงานและ PIN</p>
+    <p class="cat-desc">ISO 9001:2015 ข้อ 9.3 — ข้อมูลนำเข้า 13 หัวข้อดึงจากระบบจริง · มติและงานติดตาม · ลงนามผู้จัดทำ → ผู้อนุมัติ ด้วยบัญชีพนักงานและ PIN</p>
   </div>
 
   {#if err}<div class="merr"><span>{err}</span><button class="retry" on:click={load}>ลองใหม่</button></div>{/if}

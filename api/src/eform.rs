@@ -1,5 +1,5 @@
 // บันทึกแบบฟอร์มออนไลน์: login พนักงาน, schema, เลขที่, อนุมัติ, เช็คอิน
-use crate::{call_converter, err, now_iso, S};
+use crate::{err, now_iso, S};
 use axum::{
     body::Body,
     extract::{Extension, Path, Query, State},
@@ -1151,12 +1151,6 @@ fn print_payload(cur: &Value, schema: &Value, origin: &str, token: &str) -> Valu
     })
 }
 
-fn fallback_html(p: &Value) -> String {
-    format!("<!DOCTYPE html><html lang=\"th\"><meta charset=\"utf-8\"><body style=\"font-family:Leelawadee UI,Tahoma,sans-serif\"><h1>{}</h1><p>{} {} · {}</p><pre>{}</pre></body></html>",
-        p["title"].as_str().unwrap_or(""), p["code"].as_str().unwrap_or(""), p["refNo"].as_str().unwrap_or(""), p["status"].as_str().unwrap_or(""),
-        serde_json::to_string_pretty(p).unwrap_or_default())
-}
-
 fn qr_svg(text: &str) -> String {
     let Ok(code) = qrcode::QrCode::new(text.as_bytes()) else { return String::new() };
     let w = code.width();
@@ -1419,9 +1413,5 @@ pub async fn print_with_steps(st: &S, id: i64, origin: &str) -> Result<String, S
         approvals.push(json!({ "label": "ผู้อนุมัติ", "name": "", "at": "", "comment": "" }));
     }
     payload["approvals"] = Value::Array(approvals);
-    let body = payload.to_string();
-    match call_converter(&st.conv_port, "/form-html", &body).await {
-        Ok(v) => Ok(v["html"].as_str().unwrap_or("").to_string()),
-        Err(_) => Ok(fallback_html(&payload)),
-    }
+    Ok(crate::formhtml::render(&payload))
 }

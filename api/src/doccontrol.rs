@@ -568,10 +568,24 @@ async fn draft_path(st: &S, id: i64) -> Result<(std::path::PathBuf, Value), Resp
 }
 
 pub async fn content(Path(id): Path<i64>, State(st): State<S>) -> Response {
-    let (p, ch) = match draft_path(&st, id).await { Ok(x) => x, Err(r) => return r };
-    let mut body = preview_abs(&st, &p, ch["ext"].as_str().unwrap_or("")).await;
+    let (_, ch) = match draft_path(&st, id).await { Ok(x) => x, Err(r) => return r };
+    let mut body = preview_abs(ch["ext"].as_str().unwrap_or(""));
     body["changeId"] = json!(id);
     Json(body).into_response()
+}
+
+/// GET /api/changes/:id/pdf — ฉบับร่างเป็น PDF (ตัวแปลงเดียวกับหน้าอ่าน) ผู้อนุมัติจึงเห็นหน้าตาเดียวกับที่จะประกาศใช้
+pub async fn pdf(Path(id): Path<i64>, State(st): State<S>) -> Response {
+    let (p, ch) = match draft_path(&st, id).await { Ok(x) => x, Err(r) => return r };
+    let ext = ch["ext"].as_str().unwrap_or("");
+    let name = format!("DRAFT {} - {}", ch["refNo"].as_str().unwrap_or(""), ch["filename"].as_str().unwrap_or(""));
+    let pdf = if ext == "pdf" { fs::read(&p).map_err(|e| format!("อ่านไฟล์ไม่ได้: {e}")) }
+        else if crate::pdfview::convertible(ext) { crate::pdfview::pdf_bytes(&st, &p, ext, ch["docCode"].as_str().unwrap_or("")).await }
+        else { return err(StatusCode::BAD_REQUEST, "ไฟล์ชนิดนี้แปลงเป็น PDF ไม่ได้") };
+    match pdf {
+        Ok(b) => crate::pdfview::pdf_response(b, &name),
+        Err(e) => err(StatusCode::BAD_GATEWAY, &e),
+    }
 }
 
 pub async fn file(Path(id): Path<i64>, Query(q): Query<HashMap<String, String>>, State(st): State<S>) -> Response {
@@ -603,6 +617,10 @@ pub async fn obsolete(Path(code): Path<String>, State(st): State<S>, Extension(u
     set_status(&client, &code, "obsolete", &reason, &u).await;
     crate::acks::on_obsolete(&client, &code).await;
     crate::revcontrol::on_obsolete(&client, &code, &reason).await;
+    // รอบแก้ไขที่เปิดค้างของเอกสารนี้ใช้ต่อไม่ได้ และข้อกำหนดอบรม "รับทราบเอกสาร" นี้ไม่มีฉบับให้รับทราบแล้ว
+    let now = now_iso();
+    let _ = client.execute("UPDATE edit_sessions SET status='cancelled',updated_at=$2 WHERE doc_code=$1 AND status='open'", &[&code, &now]).await;
+    let _ = client.execute("UPDATE training_reqs SET active=false,updated_at=$2 WHERE kind='doc' AND doc_code=$1 AND active", &[&code, &now]).await;
     let _ = eform::audit(&client, &u, "doc_obsolete", "document", &code, &reason).await;
     Json(json!({ "ok": true })).into_response()
 }

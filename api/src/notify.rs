@@ -55,6 +55,24 @@ pub async fn items(st: &S, u: &AuthUser) -> Vec<Value> {
     for f in eform::pending_items(&c, u).await.unwrap_or_default() {
         out.push(item("form", "forms", &s(&f, "refNo"), &format!("รออนุมัติ: {} {}", s(&f, "formCode"), s(&f, "title")), format!("ผู้จัดทำ {}", s(&f, "preparedName")), "", "todo"));
     }
+    // คำขอเปลี่ยนแปลงเอกสาร/แบบฟอร์มของตนที่ถูกตีกลับ — ต้องแก้แล้วส่งใหม่ (หรือยกเลิก)
+    if let Ok(rows) = c.query("SELECT ref_no,doc_code FROM doc_changes WHERE prepared_by=$1 AND status='returned' ORDER BY id", &[&me]).await {
+        for r in rows {
+            let (refno, code): (String, String) = (r.get(0), r.get(1));
+            let name = st.by_code.get(&code).and_then(|d| d["name"].as_str()).unwrap_or("").to_string();
+            out.push(item("dcr", "dcr", &refno, &format!("ถูกตีกลับ แก้แล้วส่งใหม่: {code} {name}"), String::new(), "", "soon"));
+        }
+    }
+    if let Ok(rows) = c.query("SELECT ref_no,form_code,title FROM form_records WHERE prepared_by=$1 AND status='returned' ORDER BY id", &[&me]).await {
+        for r in rows {
+            let (refno, code, title): (String, String, String) = (r.get(0), r.get(1), r.get(2));
+            out.push(item("form", "forms", &refno, &format!("แบบฟอร์มถูกตีกลับ: {code} {title}"), String::new(), "", "soon"));
+        }
+    }
+    // หลักสูตรอบรมที่ตนยังขาด/หมดอายุ (Training matrix ข้อ 7.2)
+    for (title, detail) in crate::training::my_gaps(st, &c, me).await {
+        out.push(item("train", "tm", "", &format!("อบรมตามข้อกำหนด: {title}"), detail, "", "todo"));
+    }
     // เอกสารที่ต้องรับทราบ
     if let Ok(rows) = c.query("SELECT doc_code,rev,due_date FROM doc_acks WHERE emp_code=$1 AND status='pending' ORDER BY due_date", &[&me]).await {
         for r in rows {
@@ -106,6 +124,36 @@ pub async fn items(st: &S, u: &AuthUser) -> Vec<Value> {
         for r in rows {
             let (refno, title, due, mref): (String, String, String, String) = (r.get(0), r.get(1), r.get(2), r.get(3));
             out.push(item("mr", "mr", &refno, &format!("งานจากการทบทวนฝ่ายบริหาร: {title}"), format!("การประชุม {mref}"), &due, urgency(&due, &today)));
+        }
+    }
+    if eform::can_approve(&u.role) {
+        // รายงานการประชุมทบทวนที่รออนุมัติ (ผู้จัดทำอนุมัติของตนเองไม่ได้ — ระบบตรวจซ้ำตอนลงนาม)
+        if let Ok(rows) = c.query("SELECT ref_no,period FROM mr_meetings WHERE status='approve' ORDER BY id", &[]).await {
+            for r in rows {
+                let (refno, period): (String, String) = (r.get(0), r.get(1));
+                out.push(item("mr", "mr", &refno, &format!("อนุมัติรายงานการทบทวนฝ่ายบริหาร {period}"), String::new(), "", "todo"));
+            }
+        }
+        // งานจากการทบทวนที่เสร็จแล้ว รอทวนสอบประสิทธิผล (ไม่ใช่งานของตน)
+        if let Ok(rows) = c.query(
+            "SELECT a.ref_no,a.title FROM mr_actions a JOIN mr_meetings m ON m.id=a.meeting_id
+             WHERE a.status='completed' AND a.effectiveness='pending' AND a.owner_code<>$1 AND m.status='monitoring' ORDER BY a.id", &[&me],
+        ).await {
+            for r in rows {
+                let (refno, title): (String, String) = (r.get(0), r.get(1));
+                out.push(item("mr", "mr", &refno, &format!("ทวนสอบประสิทธิผลงานจากการทบทวน: {title}"), String::new(), "", "todo"));
+            }
+        }
+        // การตรวจติดตามที่รายงานแล้ว และ CAR ปิดครบ — รอผู้อนุมัติปิดการตรวจ
+        if let Ok(rows) = c.query(
+            "SELECT a.ref_no,a.title FROM ia_audits a WHERE a.status='reported' AND NOT EXISTS (
+               SELECT 1 FROM ia_items i JOIN actions x ON x.id=i.car_id WHERE i.audit_id=a.id AND x.status NOT IN ('closed','cancelled'))
+             ORDER BY a.id", &[],
+        ).await {
+            for r in rows {
+                let (refno, title): (String, String) = (r.get(0), r.get(1));
+                out.push(item("ia", "ia", &refno, &format!("ปิดการตรวจติดตาม (CAR ปิดครบแล้ว): {title}"), String::new(), "", "todo"));
+            }
         }
     }
     // การตรวจติดตามภายในที่ตนเป็นหัวหน้าผู้ตรวจ และยังไม่ลงนามรายงาน

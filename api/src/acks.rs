@@ -79,10 +79,12 @@ fn default_targets(st: &S, code: &str) -> Vec<(String, String)> {
 
 /// แปลงรายชื่อแจกจ่าย → พนักงานที่ใช้งานอยู่ (รหัส, ชื่อ, แผนก)
 async fn resolve(c: &impl deadpool_postgres::GenericClient, ts: &[(String, String)]) -> Vec<(String, String, String)> {
-    let Ok(rows) = c.query("SELECT emp_code,name_th,dept,role FROM employees WHERE status='active' ORDER BY emp_code", &[]).await else { return vec![] };
+    let Ok(rows) = c.query("SELECT emp_code,name_th,dept,role,position FROM employees WHERE status='active' ORDER BY emp_code", &[]).await else { return vec![] };
     rows.iter().filter(|r| {
-        let (code, dept, role): (String, String, String) = (r.get(0), r.get(2), r.get(3));
-        ts.iter().any(|(t, v)| match t.as_str() { "all" => true, "dept" => *v == dept, "emp" => *v == code, "role" => *v == role, _ => false })
+        let (code, dept, role, position): (String, String, String, String) = (r.get(0), r.get(2), r.get(3), r.get(4));
+        ts.iter().any(|(t, v)| match t.as_str() {
+            "all" => true, "dept" => *v == dept, "emp" => *v == code, "role" => *v == role, "position" => !v.trim().is_empty() && v.trim() == position.trim(), _ => false,
+        })
     }).map(|r| (r.get(0), r.get(1), r.get(2))).collect()
 }
 
@@ -101,7 +103,11 @@ async fn current_version(st: &S, c: &impl deadpool_postgres::GenericClient, code
 
 /// สร้างคำขอรับทราบให้ทุกคนในรายชื่อที่ยังไม่มีคำขอของเวอร์ชันนี้ — คืนจำนวนที่สร้าง
 async fn request_for(st: &S, c: &impl deadpool_postgres::GenericClient, code: &str, version: i64, rev: &str, sha: &str, by: &str) -> usize {
-    let (ts, _) = effective_targets(st, c, code).await;
+    let (mut ts, _) = effective_targets(st, c, code).await;
+    // ผู้ที่ Training matrix กำหนดให้ต้องรับทราบเอกสารนี้ (7.2) ได้คำขอด้วย แม้ไม่อยู่ในรายชื่อแจกจ่าย
+    if let Ok(rows) = c.query("SELECT target_type,target FROM training_reqs WHERE active AND kind='doc' AND doc_code=$1", &[&code]).await {
+        ts.extend(rows.iter().map(|r| (r.get::<_, String>(0), r.get::<_, String>(1))));
+    }
     let people = resolve(c, &ts).await;
     let now = now_iso();
     let due = chrono::NaiveDate::parse_from_str(&today(), "%Y-%m-%d").map(|d| (d + chrono::Duration::days(DUE_DAYS)).format("%Y-%m-%d").to_string()).unwrap_or_default();
@@ -140,6 +146,14 @@ pub async fn on_obsolete(c: &impl deadpool_postgres::GenericClient, code: &str) 
 pub async fn on_reinstate(st: &S, c: &impl deadpool_postgres::GenericClient, code: &str, by: &str) {
     if let Some((v, rev, sha)) = current_version(st, c, code).await {
         request_for(st, c, code, v, &rev, &sha, &format!("ระบบ (นำกลับมาใช้โดย {by})")).await;
+    }
+}
+
+/// เรียกเมื่อ Training matrix กำหนด/แก้ข้อกำหนด "รับทราบเอกสาร" — ส่งคำขอฉบับปัจจุบันให้ผู้ที่ต้องรับทราบทันที (คนที่มีคำขอแล้วไม่ถูกส่งซ้ำ)
+pub async fn on_training_req(st: &S, c: &impl deadpool_postgres::GenericClient, code: &str, by: &str) {
+    if c.query_opt("SELECT 1 FROM doc_status WHERE doc_code=$1 AND status='obsolete'", &[&code]).await.ok().flatten().is_some() { return; }
+    if let Some((v, rev, sha)) = current_version(st, c, code).await {
+        request_for(st, c, code, v, &rev, &sha, &format!("ระบบ (Training matrix โดย {by})")).await;
     }
 }
 

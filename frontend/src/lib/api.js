@@ -1,4 +1,4 @@
-// เรียก Rust API (ผ่าน Vite proxy /api และ /converter)
+// เรียก Rust API (ผ่าน Vite proxy /api)
 function authHeaders(extra = {}) {
   const headers = { ...extra }
   const t = localStorage.getItem('isoToken') || ''
@@ -37,7 +37,6 @@ async function postJson(url, payload, method = 'POST') {
 
 export const api = {
   docs: () => send('/api/docs').then((r) => r.json()),
-  stats: () => send('/api/stats').then((r) => r.json()),
   overview: () => send('/api/overview').then((r) => r.json()),
   overviewContent: (path, v) =>
     send(`/api/overview/content?path=${encodeURIComponent(path)}${v ? '&v=' + v : ''}`).then((r) => r.json()),
@@ -203,6 +202,7 @@ export const fileUrl = (code, v, dl) =>
 export const pdfUrl = (code, v) => (`/api/docs/${encodeURIComponent(code)}/pdf?v=${v}`)
 export const ovPdfUrl = (p, v) => (`/api/overview/pdf?path=${encodeURIComponent(p)}${v ? `&v=${v}` : ''}`)
 export const changeFileUrl = (id, dl) => (`/api/changes/${id}/file${dl ? '?dl=1' : ''}`)
+export const changePdfUrl = (id) => `/api/changes/${id}/pdf`
 // PDF สำเนาควบคุม (ประทับเลขสำเนา + QR) — เปิดแท็บใหม่เพื่อสั่งพิมพ์
 export const copyPdfUrl = (id) => (`/api/copies/${id}/pdf`)
 // ?s=<sha> เปลี่ยนทุกครั้งที่บันทึก — กันเบราว์เซอร์ใช้ PDF เก่าจากแคช
@@ -210,12 +210,6 @@ export const editPdfUrl = (id, sha) => (`/api/edit/${id}/pdf?s=${(sha || '').sli
 export const ovFileUrl = (p, dl) =>
   (`/api/overview/file?path=${encodeURIComponent(p)}${dl ? '&dl=1' : ''}`)
 
-export const b64ToBytes = (b64) => {
-  const bin = atob(b64)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
 export const bytesToB64 = (bytes) => {
   let s = ''
   const chunk = 0x8000

@@ -1,9 +1,8 @@
-// Production server (Bun) — เสิร์ฟ frontend ที่ build แล้ว + proxy /api และ /converter
+// Production server (Bun) — เสิร์ฟ frontend ที่ build แล้ว + proxy /api
 // ใช้กับ deploy iso.kgarden.co.th ผ่าน Cloudflare Tunnel
 import { resolve, normalize, sep } from 'node:path'
 const PORT = Number(process.env.PORT || 8090)
 const API = process.env.API_TARGET || 'http://127.0.0.1:8085'
-const CONV = process.env.CONV_TARGET || 'http://127.0.0.1:8081'
 const DIST = new URL('./frontend/dist/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 const DIST_ABS = resolve(DIST)
 
@@ -22,9 +21,8 @@ Bun.serve({
     const url = new URL(req.url)
     const path = url.pathname
 
-    // proxy API + converter (คง path เดิม)
+    // proxy API (คง path เดิม)
     if (path.startsWith('/api')) return proxy(req, API)
-    if (path.startsWith('/converter')) return proxy(req, CONV, '/converter')
 
     // static + SPA fallback (จำกัด path ให้อยู่ใน DIST เท่านั้น กัน path traversal)
     let rel
@@ -40,11 +38,9 @@ Bun.serve({
   },
 })
 
-async function proxy(req, target, strip) {
+async function proxy(req, target) {
   const u = new URL(req.url)
-  let p = u.pathname
-  if (strip) p = p.slice(strip.length) || '/'
-  const dest = target + p + u.search
+  const dest = target + u.pathname + u.search
   const init = { method: req.method, headers: req.headers, redirect: 'manual' }
   if (!['GET', 'HEAD'].includes(req.method)) init.body = await req.arrayBuffer()
   try {
@@ -54,4 +50,4 @@ async function proxy(req, target, strip) {
   }
 }
 
-console.log(`  ✅ iso production server: http://127.0.0.1:${PORT}  (api->${API}, conv->${CONV})`)
+console.log(`  ✅ iso production server: http://127.0.0.1:${PORT}  (api->${API})`)

@@ -1,13 +1,12 @@
 <script>
-  // คำขอเปลี่ยนแปลงเอกสาร (DCR) หนึ่งใบ: ฉบับร่าง + ขั้นตอนลงนาม + ปุ่มตรวจสอบ/อนุมัติ/ตีกลับ/ส่งใหม่/ยกเลิก
+  // คำขอเปลี่ยนแปลงเอกสาร (DCR) หนึ่งใบ: ฉบับร่าง + ขั้นตอนลงนาม + ปุ่มอนุมัติ/ตีกลับ/ส่งใหม่/ยกเลิก
   import { createEventDispatcher } from 'svelte'
-  import { api, changeFileUrl, bytesToB64 } from './lib/api.js'
+  import { api, changeFileUrl, changePdfUrl } from './lib/api.js'
   import { OFFICE_EXTS } from './lib/const.js'
   import { DCR_STATUS, dcrStepLabel, noteParts, fmtWhen } from './lib/changeNote.js'
   import DocBody from './DocBody.svelte'
   import SignDialog from './SignDialog.svelte'
   import DecisionDialog from './DecisionDialog.svelte'
-  import EditActions from './EditActions.svelte'
   import OfficeEdit from './OfficeEdit.svelte'
   import AiPanel from './AiPanel.svelte'
   import Icon from './Icon.svelte'
@@ -18,8 +17,6 @@
   const dispatch = createEventDispatcher()
 
   let content = null, contentErr = '', loadingContent = false
-  let editing = false, dirty = false
-  let body // DocBody
   let deciding = null // { kind: 'pass'|'return'|'cancel' }
   let resubmit = null // { dataBase64?, ext?, filename?, source?, editId?, label }
   let gEdit = false // แก้ฉบับร่างที่ถูกตีกลับในตัวแก้ไขบนเว็บ (ONLYOFFICE)
@@ -34,7 +31,6 @@
   $: can = change?.can || {}
   $: lastReturn = (change?.steps || []).filter((s) => s.action === 'return').slice(-1)[0]
   $: canWebOffice = can.resubmit && OFFICE_EXTS.includes(change?.ext)
-  $: editableDraft = can.resubmit && content && (content.kind === 'html' || content.kind === 'sheet')
   $: if (change?.id) loadContent(change.id, change.sha256)
 
   let loadedKey = ''
@@ -45,8 +41,6 @@
     loadingContent = true
     contentErr = ''
     content = null
-    editing = false
-    dirty = false
     try {
       content = await api.changeContent(id)
       if (content?.error) throw new Error(content.error)
@@ -74,20 +68,6 @@
     deciding = null
     change = r.body
     dispatch('changed', { change: r.body, effective: wasApprove && r.body.status === 'effective' })
-  }
-
-  async function startResubmitFromEdit() {
-    err = ''
-    try {
-      const d = await body.buildEdited()
-      resubmit = {
-        dataBase64: bytesToB64(d.bytes), ext: d.ext, source: 'edit',
-        filename: (change.filename || doc.file).replace(/\.[^.]+$/, '') + '.' + d.ext,
-        label: 'แก้ไขฉบับร่างบนเว็บ แล้วส่งใหม่',
-      }
-    } catch (e) {
-      err = 'สร้างไฟล์ที่แก้ไขไม่สำเร็จ: ' + e.message
-    }
   }
 
   function onPickFile(e) {
@@ -152,21 +132,16 @@
       <button class="mbtn danger" on:click={() => (deciding = 'return')}>ตีกลับ</button>
     {/if}
     {#if can.resubmit}
-      {#if canWebOffice && !editing}
+      {#if canWebOffice}
         <button class="mbtn {gEdit ? 'gh' : 'accent'} inline-flex items-center gap-1.5" on:click={() => (gEdit = !gEdit)}>
           <Icon name={gEdit ? 'eye' : 'pencil'} size={14} /> {gEdit ? 'ดูฉบับร่างที่ส่งไว้' : 'แก้ไขฉบับร่าง'}
         </button>
       {/if}
-      {#if editableDraft && !canWebOffice}
-        <EditActions {editing} {dirty} updateLabel="ส่งใหม่เพื่ออนุมัติ" editLabel="แก้ไขฉบับร่างบนเว็บ" on:cancel={() => { editing = false; dirty = false; loadedKey = ''; loadContent(change.id, change.sha256) }} on:start={() => { editing = true; dirty = false }} on:update={startResubmitFromEdit} />
-      {/if}
       <button class="mbtn inline-flex items-center gap-1.5" on:click={() => uploadInput.click()}><Icon name="cloud-upload" size={14} /> แนบไฟล์ใหม่</button>
       <input bind:this={uploadInput} type="file" class="hidden" on:change={onPickFile} />
-      {#if !editing}
-        <button class="mbtn gh" on:click={() => (resubmit = { label: 'ส่งฉบับร่างเดิมใหม่อีกครั้ง' })}>ส่งใหม่โดยไม่เปลี่ยนไฟล์</button>
-      {/if}
+      <button class="mbtn gh" on:click={() => (resubmit = { label: 'ส่งฉบับร่างเดิมใหม่อีกครั้ง' })}>ส่งใหม่โดยไม่เปลี่ยนไฟล์</button>
     {/if}
-    {#if can.cancel && !editing}
+    {#if can.cancel}
       <button class="mbtn gh" on:click={() => (deciding = 'cancel')}>ยกเลิกคำขอ</button>
     {/if}
     {#if !can.approve && change.status === 'approve'}
@@ -211,15 +186,11 @@
   {:else if content}
     <div class="dcr-draft" class:is-draft={change.status !== 'effective'}>
       <DocBody
-        bind:this={body}
         {content}
         name={doc.name}
-        origUrl={changeFileUrl(change.id)}
         embedUrl={changeFileUrl(change.id)}
         downloadUrl={changeFileUrl(change.id, true)}
-        {editing}
-        saveLabel="ส่งใหม่เพื่ออนุมัติ"
-        bind:dirty
+        pdfUrl={`${changePdfUrl(change.id)}?s=${change.sha256 || ''}`}
       />
     </div>
   {/if}
