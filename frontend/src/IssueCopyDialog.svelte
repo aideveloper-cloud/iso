@@ -35,14 +35,14 @@
   <div class="sgbox">
     {#if !issued}
       <h3>ออกสำเนาควบคุม</h3>
-      <div class="sgs">{doc.code} · {doc.name} · {rev} — ทุกหน้าประทับเลขสำเนา + QR ตรวจ Rev. ปัจจุบัน · เมื่อออก Rev. ใหม่ ระบบจะแจ้งให้เรียกคืนสำเนานี้</div>
+      <div class="sgs">{doc.code} · {doc.name} · {rev} — ทุกหน้าประทับเลขสำเนา + QR ตรวจเลขฉบับปัจจุบัน · เมื่อออกฉบับใหม่ ระบบจะแจ้งให้เรียกคืนสำเนานี้</div>
       <div class="sgf">
         <label>จุดใช้งาน / ที่เก็บสำเนา <em>*</em></label>
         <input bind:value={location} placeholder="เช่น โรงงาน · เครื่องตัดลวด, โกดัง, ห้อง QC" />
       </div>
       <div class="sgf">
         <label>ผู้ถือสำเนา (รหัสพนักงาน)</label>
-        <input bind:value={holderCode} on:blur={lookup} placeholder="ไม่บังคับ — ผู้ถือจะได้รับงานคืนสำเนาเมื่อออก Rev. ใหม่" />
+        <input bind:value={holderCode} on:blur={lookup} placeholder="ไม่บังคับ — ผู้ถือจะได้รับงานคืนสำเนาเมื่อออกฉบับใหม่" />
         {#if holderName}<span class="mnote !m-0">{holderName}</span>{/if}
       </div>
       <div class="sgf">

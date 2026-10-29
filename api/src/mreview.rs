@@ -1,8 +1,8 @@
 // การทบทวนของฝ่ายบริหาร (Management Review, ISO 9001:2015 ข้อ 9.3) — ต่อยอดจาก management-review-dashboard
 //   ข้อมูลนำเข้า 13 หัวข้อ (9.3.2) ดึงจากข้อมูลจริงในระบบ (DCR, CAR/DAR/PAR, ผลความพร้อม, การอบรม, งานจากครั้งก่อน)
 //   + บันทึกเพิ่มเองพร้อมหลักฐาน · มติและงานติดตาม (9.3.3)
-//   ขั้นตอน: ร่าง → รอตรวจสอบ → รออนุมัติ → ติดตามงาน → ปิด  ทุกขั้นลงนามด้วยบัญชีพนักงาน + PIN
-//   แยกหน้าที่: ผู้จัดทำ ≠ ผู้ตรวจสอบ ≠ ผู้อนุมัติ · เจ้าของงานทวนสอบประสิทธิผลงานของตนเองไม่ได้ (ยกเว้น admin)
+//   ขั้นตอน: ร่าง → รออนุมัติ → ติดตามงาน → ปิด  ทุกขั้นลงนามด้วยบัญชีพนักงาน + PIN
+//   แยกหน้าที่: ผู้จัดทำ ≠ ผู้อนุมัติ · เจ้าของงานทวนสอบประสิทธิผลงานของตนเองไม่ได้ (ยกเว้น admin)
 use crate::eform::{self, AuthUser};
 use crate::{err, now_iso, sha256_hex, S};
 use axum::{
@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS mr_signatures(
   sha256 TEXT NOT NULL DEFAULT '',
   at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_mrs_meeting ON mr_signatures(meeting_id);
+-- ยกเลิกขั้นตรวจสอบ: การประชุมที่ค้างรอตรวจสอบย้ายไปรออนุมัติ
+UPDATE mr_meetings SET status='approve' WHERE status='review';
 ";
 
 /// ข้อมูลนำเข้าตาม 9.3.2 — (key, ชื่อหัวข้อ, ข้อย่อย)
@@ -159,12 +161,11 @@ async fn signatures(c: &impl deadpool_postgres::GenericClient, id: i64) -> Vec<V
         })).collect()).unwrap_or_default()
 }
 
-/// ผู้ลงนามขั้นล่าสุดของแต่ละ stage ในรอบปัจจุบัน (นับหลังการตีกลับครั้งล่าสุด)
-fn current_signers(sigs: &[Value]) -> (String, String) {
+/// ผู้จัดทำที่ส่งรอบปัจจุบัน (นับหลังการตีกลับครั้งล่าสุด)
+fn current_preparer(sigs: &[Value]) -> String {
     let start = sigs.iter().rposition(|x| x["action"] == json!("return")).map(|i| i + 1).unwrap_or(0);
     let cur = &sigs[start..];
-    let who = |stage: &str| cur.iter().rev().find(|x| x["stage"] == json!(stage) && x["action"] != json!("return")).map(|x| s(x, "empCode")).unwrap_or_default();
-    (who("prepared"), who("reviewed"))
+    cur.iter().rev().find(|x| x["stage"] == json!("prepared") && x["action"] != json!("return")).map(|x| s(x, "empCode")).unwrap_or_default()
 }
 
 // ---------- ความครบถ้วน ----------
@@ -239,7 +240,7 @@ fn insights(m: &Value, actions: &[Value]) -> Vec<Value> {
 
 fn can_flags(u: &AuthUser, m: &Value, sigs: &[Value], actions: &[Value]) -> Value {
     let status = m["status"].as_str().unwrap_or("");
-    let (preparer, reviewer) = current_signers(sigs);
+    let preparer = current_preparer(sigs);
     let me = u.emp_code.as_str();
     let pct = completeness(m, actions)["percent"].as_i64().unwrap_or(0);
     let open = actions.iter().filter(|a| OPEN_ACTION.contains(&a["status"].as_str().unwrap_or(""))).count();
@@ -247,14 +248,13 @@ fn can_flags(u: &AuthUser, m: &Value, sigs: &[Value], actions: &[Value]) -> Valu
     json!({
         "edit": status == "draft" && can_write(u),
         "submit": status == "draft" && can_write(u) && pct == 100,
-        "review": status == "review" && eform::can_review(&u.role) && (admin(u) || preparer != me),
-        "approve": status == "approve" && eform::can_approve(&u.role) && (admin(u) || (preparer != me && reviewer != me)),
+        "approve": status == "approve" && eform::can_approve(&u.role) && (admin(u) || preparer != me),
         "close": status == "monitoring" && eform::can_approve(&u.role) && open == 0 && unverified == 0,
         "revise": matches!(status, "monitoring" | "closed") && can_write(u),
-        "verify": eform::can_review(&u.role),
+        "verify": eform::can_approve(&u.role),
         "approveBudget": eform::can_approve(&u.role),
         "percent": pct, "openActions": open, "unverified": unverified,
-        "preparer": preparer, "reviewer": reviewer,
+        "preparer": preparer,
     })
 }
 
@@ -721,7 +721,7 @@ pub async fn sync(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extens
 #[derive(Deserialize)]
 pub struct ActReq { version: i64, action: String, comment: Option<String>, pin: Option<String> }
 
-/// เปลี่ยนขั้นตอน: submit (ผู้จัดทำ) · pass/return (ผู้ตรวจสอบ) · approve/return (ผู้อนุมัติ) · close (ผู้อนุมัติ)
+/// เปลี่ยนขั้นตอน: submit (ผู้จัดทำ) · approve/return (ผู้อนุมัติ) · close (ผู้อนุมัติ)
 pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<ActReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(m) = load_meeting(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบการประชุม") };
@@ -732,15 +732,13 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
     let status = s(&m, "status");
     let comment = clip(&b.comment.unwrap_or_default(), 2000);
     let (stage, next) = match (status.as_str(), b.action.as_str()) {
-        ("draft", "submit") if can["submit"] == json!(true) => ("prepared", "review"),
+        ("draft", "submit") if can["submit"] == json!(true) => ("prepared", "approve"),
         ("draft", "submit") => return bad(if can_write(&u) { "ยังทบทวนข้อมูลนำเข้า มติ หรืองานติดตามไม่ครบ 100%" } else { "บัญชีผู้อ่านอย่างเดียวส่งไม่ได้" }),
-        ("review", "pass") if can["review"] == json!(true) => ("reviewed", "approve"),
-        ("review", "return") if can["review"] == json!(true) => ("reviewed", "draft"),
         ("approve", "approve") if can["approve"] == json!(true) => ("approved", "monitoring"),
         ("approve", "return") if can["approve"] == json!(true) => ("approved", "draft"),
         ("monitoring", "close") if can["close"] == json!(true) => ("closed", "closed"),
         ("monitoring", "close") => return bad("ปิดได้เมื่อทุกงานเสร็จและทวนสอบประสิทธิผลแล้ว (หรือยกเลิกพร้อมเหตุผล) โดยผู้อนุมัติ"),
-        ("review" | "approve", _) => return forbid("ไม่มีสิทธิ์ในขั้นนี้ — ผู้จัดทำ ผู้ตรวจสอบ และผู้อนุมัติต้องเป็นคนละคนกัน"),
+        ("approve", _) => return forbid("ไม่มีสิทธิ์ในขั้นนี้ — ผู้จัดทำและผู้อนุมัติต้องเป็นคนละคนกัน"),
         _ => return bad("เปลี่ยนสถานะตามลำดับนี้ไม่ได้"),
     };
     if b.action == "return" && comment.is_empty() { return bad("กรุณาระบุเหตุผลที่ตีกลับ"); }
@@ -874,8 +872,8 @@ pub async fn action_create(Path(id): Path<i64>, State(st): State<S>, Extension(u
 
 /// แก้ไข/ติดตามงาน
 ///  - ร่าง: ผู้จัดทำแก้รายละเอียดทั้งหมด (อนุมัติงบได้เฉพาะผู้อนุมัติ)
-///  - ติดตามงาน: รายละเอียดล็อก; เจ้าของงานหรือผู้ตรวจสอบขึ้นไปอัปเดตสถานะ/หลักฐาน/ความเห็น
-///    เสร็จแล้วต้องมีหลักฐาน · ยกเลิกต้องมีเหตุผลและเป็นผู้ตรวจสอบขึ้นไป · ทวนสอบประสิทธิผลโดยผู้ตรวจสอบที่ไม่ใช่เจ้าของงาน
+///  - ติดตามงาน: รายละเอียดล็อก; เจ้าของงานหรือผู้อนุมัติขึ้นไปอัปเดตสถานะ/หลักฐาน/ความเห็น
+///    เสร็จแล้วต้องมีหลักฐาน · ยกเลิกต้องมีเหตุผลและเป็นผู้อนุมัติขึ้นไป · ทวนสอบประสิทธิผลโดยผู้อนุมัติที่ไม่ใช่เจ้าของงาน
 pub async fn action_update(Path(aid): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<ActionReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(cur) = c.query_opt(&format!("SELECT {ACOLS} FROM mr_actions WHERE id=$1"), &[&aid]).await.ok().flatten().map(|r| action_json(&r))
@@ -886,7 +884,7 @@ pub async fn action_update(Path(aid): Path<i64>, State(st): State<S>, Extension(
     let mstatus = s(&m, "status");
     let f = b.fields;
     let owner = s(&cur, "ownerCode") == u.emp_code;
-    let reviewer = eform::can_review(&u.role);
+    let approver = eform::can_approve(&u.role);
     let now = now_iso();
     let mut v: Value = cur.clone();
 
@@ -927,7 +925,7 @@ pub async fn action_update(Path(aid): Path<i64>, State(st): State<S>, Extension(
                                   ("budget", f.budget.is_some()), ("resources", f.resources.is_some()), ("approval", f.approval.is_some())] {
                 if given { return bad(&format!("รายละเอียดงานที่อนุมัติแล้ว ({name}) แก้โดยตรงไม่ได้ — สร้างฉบับแก้ไข (revision)")); }
             }
-            if !owner && !reviewer { return forbid("อัปเดตได้เฉพาะเจ้าของงาน หรือผู้ตรวจสอบขึ้นไป"); }
+            if !owner && !approver { return forbid("อัปเดตได้เฉพาะเจ้าของงาน หรือผู้อนุมัติขึ้นไป"); }
             if let Some(x) = f.comment { v["comment"] = json!(clip(&x, 2000)); }
             match clean_evidence(f.evidence, &cur) { Ok(e) => v["evidence"] = e, Err(r) => return r }
             if let Some(stt) = f.status.as_deref() {
@@ -939,7 +937,7 @@ pub async fn action_update(Path(aid): Path<i64>, State(st): State<S>, Extension(
                         v["status"] = json!("completed");
                     }
                     "cancelled" => {
-                        if !reviewer { return forbid("ยกเลิกงานได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+                        if !approver { return forbid("ยกเลิกงานได้เฉพาะผู้อนุมัติขึ้นไป"); }
                         if s(&v, "comment").trim().is_empty() { return bad("ยกเลิกงานต้องระบุเหตุผลในช่องความเห็น"); }
                         v["status"] = json!("cancelled");
                     }
@@ -948,7 +946,7 @@ pub async fn action_update(Path(aid): Path<i64>, State(st): State<S>, Extension(
             }
             if let Some(eff) = f.effectiveness.as_deref() {
                 if eff != s(&cur, "effectiveness") {
-                    if !reviewer { return forbid("ทวนสอบประสิทธิผลได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+                    if !approver { return forbid("ทวนสอบประสิทธิผลได้เฉพาะผู้อนุมัติขึ้นไป"); }
                     if owner && !admin(&u) { return forbid("เจ้าของงานทวนสอบประสิทธิผลงานของตนเองไม่ได้"); }
                     if s(&v, "status") != "completed" { return bad("ทวนสอบได้เมื่องานเสร็จแล้ว"); }
                     match eff {
@@ -960,7 +958,7 @@ pub async fn action_update(Path(aid): Path<i64>, State(st): State<S>, Extension(
                 }
             }
         }
-        "review" | "approve" => return bad("ระหว่างรอตรวจสอบ/อนุมัติแก้งานไม่ได้ — ส่งกลับเป็นร่างก่อน"),
+        "approve" => return bad("ระหว่างรออนุมัติแก้งานไม่ได้ — ส่งกลับเป็นร่างก่อน"),
         _ => return bad("การประชุมนี้ปิดหรือถูกแทนที่แล้ว แก้งานไม่ได้"),
     }
 

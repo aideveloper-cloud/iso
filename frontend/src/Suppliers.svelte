@@ -35,7 +35,7 @@
     return new Date(Date.UTC(y, m - 1 + Number(n), Math.min(dd, last))).toISOString().slice(0, 10)
   }
   const dueText = (p) => p.daysLeft == null ? '' : p.daysLeft < 0 ? `เลย ${-p.daysLeft} วัน` : p.daysLeft === 0 ? 'วันนี้' : `อีก ${p.daysLeft} วัน`
-  $: reviewer = ['reviewer', 'approver', 'admin'].includes(me?.role)
+  $: approver = ['approver', 'admin'].includes(me?.role)
 
   let list = [], loading = true, err = '', q = ''
   let filter = 'active'
@@ -244,7 +244,7 @@
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div class="sgf"><label>สถานะหลังประเมิน</label>
-                {#if reviewer}<select bind:value={ev.status}><option value="">ตามที่แนะนำ ({STATUS[evRec]})</option>{#each Object.entries(STATUS) as [k, l]}<option value={k}>{l}</option>{/each}</select>
+                {#if approver}<select bind:value={ev.status}><option value="">ตามที่แนะนำ ({STATUS[evRec]})</option>{#each Object.entries(STATUS) as [k, l]}<option value={k}>{l}</option>{/each}</select>
                 {:else}<div class="pt-1.5"><span class="status-badge {STATUS_CLS[evRec]}">{STATUS[evRec]}</span> <span class="mut text-[11.5px]">ตามผลประเมิน (ผู้ตรวจสอบขึ้นไปกำหนดต่างได้)</span></div>{/if}
               </div>
               <div class="sgf"><label>ประเมินครั้งถัดไป</label>
@@ -332,7 +332,7 @@
       {:else}
         <div class="grid grid-cols-2 gap-3">
           <div class="sgf"><label>สถานะเริ่มต้น</label>
-            {#if reviewer}<select bind:value={f.status}>{#each Object.entries(STATUS) as [k, l]}<option value={k}>{l}{k === 'conditional' ? ' (ผู้ขายใหม่ — รอประเมิน)' : k === 'approved' ? ' (ผู้ขายเดิมที่อนุมัติแล้ว)' : ''}</option>{/each}</select>
+            {#if approver}<select bind:value={f.status}>{#each Object.entries(STATUS) as [k, l]}<option value={k}>{l}{k === 'conditional' ? ' (ผู้ขายใหม่ — รอประเมิน)' : k === 'approved' ? ' (ผู้ขายเดิมที่อนุมัติแล้ว)' : ''}</option>{/each}</select>
             {:else}<div class="pt-1.5"><span class="status-badge s-in_progress">มีเงื่อนไข</span> <span class="mut text-[11.5px]">จนกว่าจะประเมินครั้งแรก</span></div>{/if}
           </div>
           {#if f.status !== 'blocked'}<div class="sgf"><label>กำหนดประเมิน</label><input type="date" min={today()} bind:value={f.nextEval} /><div class="mut text-[11.5px]">ว่าง = {f.status === 'approved' ? `อีก ${f.evalMonths} เดือน` : 'ภายใน 30 วัน'}</div></div>{/if}

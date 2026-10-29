@@ -58,7 +58,7 @@
   $: isLatest = meta != null && ver === latestVer
   $: isSheetExt = meta?.ext === 'xls' || meta?.ext === 'xlsx'
   $: chronVersions = meta ? [...meta.versions].reverse() : []
-  $: openChange = changes.find((c) => ['review', 'approve', 'returned'].includes(c.status)) || null
+  $: openChange = changes.find((c) => ['approve', 'returned'].includes(c.status)) || null
   $: obsolete = meta?.docStatus === 'obsolete'
   // แก้เอกสารควบคุมได้เฉพาะผ่าน DCR: ไม่มีคำขอค้าง, ไม่ถูกยกเลิกใช้, ไม่ใช่บัญชีอ่านอย่างเดียว
   $: canChange = !!meta && isLatest && !openChange && !obsolete && me?.role !== 'viewer'
@@ -69,10 +69,10 @@
   $: canReinstate = obsolete && me?.role === 'admin'
   $: canManage = canChange || canObsolete
   // ควบคุมฉบับ (7.5.3.2): ดาวน์โหลดต้นฉบับได้เฉพาะฉบับปัจจุบันที่ยังใช้งาน — ผู้ควบคุมเอกสารดาวน์โหลดฉบับเก่าได้ (ฝั่ง API ตรวจซ้ำ)
-  $: isDcc = ['reviewer', 'approver', 'admin'].includes(me?.role)
+  $: isDcc = ['approver', 'admin'].includes(me?.role)
   $: canDownload = (v) => isDcc || (v === latestVer && !obsolete)
   $: canIssueCopy = isDcc && isLatest && !obsolete && !!content
-  const DL_TITLE = 'ไฟล์ที่ดาวน์โหลดถูกบันทึกเป็นสำเนาของคุณ — เมื่อออก Rev. ใหม่ ระบบจะแจ้งให้ลบไฟล์เก่า'
+  const DL_TITLE = 'ไฟล์ที่ดาวน์โหลดถูกบันทึกเป็นสำเนาของคุณ — เมื่อออกฉบับใหม่ ระบบจะแจ้งให้ลบไฟล์เก่า'
   let issuing = false
   // ผู้ช่วย AI: แท็บแสดงเมื่อเซิร์ฟเวอร์ตั้ง OPENAI_API_KEY แล้ว · ข้อที่ทำตามสร้างเป็นฉบับร่างแล้วส่ง DCR ตามขั้นตอนปกติ
   let aiEnabled = false
@@ -263,7 +263,7 @@
   }
 
   async function afterSubmit(body) {
-    savedMsg = `ส่งคำขอ ${body.refNo} แล้ว — ${body.newRev} จะมีผลบังคับใช้เมื่อผู้ตรวจสอบและผู้อนุมัติลงนามครบ`
+    savedMsg = `ส่งคำขอ ${body.refNo} แล้ว — ${body.newRev} จะมีผลบังคับใช้เมื่อผู้อนุมัติลงนาม`
     await load(ver)
     await loadChanges()
     selChange = body.id
@@ -310,9 +310,9 @@
           {doc.deptName} · {meta?.rev || doc.rev}{#if meta?.eff} · บังคับใช้ {meta.eff}{/if}
           {#if meta}
             {#if isLatest}
-              <span class="ver-badge latest inline-flex items-center gap-1"><Icon name="circle-check" size={12} /> เวอร์ชันล่าสุด v{ver}</span>
+              <span class="ver-badge latest inline-flex items-center gap-1"><Icon name="circle-check" size={12} /> เวอร์ชันล่าสุด #{ver}</span>
             {:else}
-              <span class="ver-badge old inline-flex items-center gap-1"><Icon name="alert-triangle" size={12} /> เวอร์ชันเก่า v{ver} · ล่าสุด v{latestVer}</span>
+              <span class="ver-badge old inline-flex items-center gap-1"><Icon name="alert-triangle" size={12} /> เวอร์ชันเก่า #{ver} · ล่าสุด #{latestVer}</span>
             {/if}
           {/if}
         </div>
@@ -378,7 +378,7 @@
             <span class="mut">อ่านอย่างเดียว — ต้องการแก้ไขให้กด “{canWebOffice ? 'แก้ไขเอกสาร' : 'ขอแก้ไขเอกสาร'}” (ผ่านคำขอ DCR และการอนุมัติ)</span>
             <span class="grow"></span>
             {#if canIssueCopy}
-              <button class="mbtn gh inline-flex items-center gap-1.5" title="พิมพ์ไปใช้หน้างาน — ประทับเลขสำเนา + QR และติดตามเรียกคืนเมื่อออก Rev. ใหม่" on:click={() => (issuing = true)}><Icon name="printer" size={14} /> พิมพ์สำเนาควบคุม</button>
+              <button class="mbtn gh inline-flex items-center gap-1.5" title="พิมพ์ไปใช้หน้างาน — ประทับเลขสำเนา + QR และติดตามเรียกคืนเมื่อออกฉบับใหม่" on:click={() => (issuing = true)}><Icon name="printer" size={14} /> พิมพ์สำเนาควบคุม</button>
             {/if}
             {#if doc.type === 'FM'}
               <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'new' })}><Icon name="plus" size={14} /> กรอกแบบฟอร์มใหม่</button>
@@ -390,7 +390,7 @@
         <div class="file-tools">
           <div class="ft-head">
             <b>การแก้ไขเอกสาร</b>
-            <span class="mut">{canWebOffice ? 'แก้ไขเอกสาร' : 'แก้บนเว็บหรือแนบไฟล์'} → ส่งคำขอ (DCR) → ตรวจสอบ → อนุมัติ → มีผลบังคับใช้เป็น Rev. ใหม่</span>
+            <span class="mut">{canWebOffice ? 'แก้ไขเอกสาร' : 'แก้บนเว็บหรือแนบไฟล์'} → ส่งคำขอ (DCR) → อนุมัติ → มีผลบังคับใช้เป็น ฉบับใหม่</span>
           </div>
           <div class="ft-actions">
             {#if canWebOffice && !gEdit}
@@ -442,7 +442,7 @@
           {#if !isLatest}
             <div class="ver-warn">
               <Icon name="alert-triangle" size={16} />
-              <span>กำลังดูเวอร์ชันเก่า (v{ver}) ซึ่งไม่ควรนำไปใช้งานจริง — เวอร์ชันล่าสุดคือ <b>v{latestVer}</b> · หน้าเอกสารประทับ SUPERSEDED{#if !isDcc} และดาวน์โหลดไฟล์ต้นฉบับไม่ได้{/if}</span>
+              <span>กำลังดูเวอร์ชันเก่า (#{ver}) ซึ่งไม่ควรนำไปใช้งานจริง — เวอร์ชันล่าสุดคือ <b>#{latestVer}</b> · หน้าเอกสารประทับ SUPERSEDED{#if !isDcc} และดาวน์โหลดไฟล์ต้นฉบับไม่ได้{/if}</span>
               <button class="vw-btn" on:click={() => load(latestVer)}>ไปเวอร์ชันล่าสุด</button>
             </div>
           {/if}
@@ -563,12 +563,12 @@
       <SignDialog
         title="{doc.code} · {doc.name}"
         summary={signing === 'office'
-          ? 'ฉบับที่แก้ในตัวแก้ไขเอกสาร → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
+          ? 'ฉบับที่แก้ในตัวแก้ไขเอกสาร → ส่งเป็นฉบับร่างให้ผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
           : signing === 'edit'
-          ? 'แก้ไขบนเว็บ → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
+          ? 'แก้ไขบนเว็บ → ส่งเป็นฉบับร่างให้ผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
           : aiDraft
-          ? 'ฉบับร่างที่ระบบแก้ตามข้อแนะนำ AI ที่คุณเลือกทำตาม → ส่งให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
-          : `แนบไฟล์ “${pendingUpload?.name}” → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ`}
+          ? 'ฉบับร่างที่ระบบแก้ตามข้อแนะนำ AI ที่คุณเลือกทำตาม → ส่งให้ผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
+          : `แนบไฟล์ “${pendingUpload?.name}” → ส่งเป็นฉบับร่างให้ผู้อนุมัติ`}
         initialReason={aiDraft?.reason || ''}
         initialNote={aiDraft?.note || ''}
         confirmLabel="ส่งขออนุมัติ"

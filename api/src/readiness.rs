@@ -105,13 +105,13 @@ pub async fn evaluate(st: &S) -> Value {
                 if st.by_code.contains_key(&code) && source != "original" && change_id == 0 { unapproved.push(code); }
             }
         }
-        if let Ok(rows) = c.query("SELECT doc_code,ref_no,updated_at FROM doc_changes WHERE status IN ('review','approve','returned')", &[]).await {
+        if let Ok(rows) = c.query("SELECT doc_code,ref_no,updated_at FROM doc_changes WHERE status IN ('approve','returned')", &[]).await {
             for r in rows {
                 if days_since(&r.get::<_, String>(2)) > 14 { stale_dcr.push(format!("{} ({})", r.get::<_, String>(1), r.get::<_, String>(0))); }
             }
         }
         car_rows = c.query("SELECT ref_no,status,due_date,assignee_code,action_taken,effectiveness,root_cause,kind,verified_code FROM actions WHERE status<>'cancelled'", &[]).await.unwrap_or_default();
-        form_rows = c.query("SELECT ref_no,status,created_at,submitted_at FROM form_records WHERE status IN ('review','approve')", &[]).await.unwrap_or_default();
+        form_rows = c.query("SELECT ref_no,status,created_at,submitted_at FROM form_records WHERE status='approve'", &[]).await.unwrap_or_default();
         training_n = c.query_one("SELECT COUNT(*) FROM training_log", &[]).await.map(|r| r.get(0)).unwrap_or(0);
     }
 
@@ -169,7 +169,7 @@ pub async fn evaluate(st: &S) -> Value {
     cs.check("car-closure", "ปิด CAR/DAR/PAR ครบ: สาเหตุ การแก้ไข และทวนสอบประสิทธิผล", "การแก้ไข", "10.2", no_record.is_empty(), false,
         format!("{} ใบปิดแล้วแต่ขาดสาเหตุ/การดำเนินการ หรือไม่ได้ทวนสอบประสิทธิผลโดยผู้อื่น", no_record.len()), no_record);
     cs.check("car-verify", "CAR/DAR/PAR ที่รอทวนสอบประสิทธิผล", "การแก้ไข", "10.2", awaiting.is_empty(), false,
-        format!("รอผู้ตรวจสอบทวนสอบ {} ใบ", awaiting.len()), awaiting);
+        format!("รอผู้อนุมัติทวนสอบ {} ใบ", awaiting.len()), awaiting);
 
     // ---------- บันทึก / การอบรม ----------
     let late_forms: Vec<String> = form_rows.iter().filter(|r| {
@@ -178,7 +178,7 @@ pub async fn evaluate(st: &S) -> Value {
         days_since(if submitted.is_empty() { &created } else { &submitted }) > 7
     }).map(|r| r.get::<_, String>(0)).collect();
     cs.check("form-pending", "บันทึกแบบฟอร์มได้รับการอนุมัติตามเวลา", "บันทึก", "7.5", late_forms.is_empty(), false,
-        format!("รอตรวจสอบ/อนุมัติเกิน 7 วัน {} ใบ", late_forms.len()), late_forms);
+        format!("รออนุมัติเกิน 7 วัน {} ใบ", late_forms.len()), late_forms);
     cs.check("training-records", "มีบันทึกการอบรมในระบบ", "การอบรม", "7.2", training_n > 0, false,
         if training_n > 0 { format!("บันทึกผู้เข้าอบรม {training_n} รายการ (จาก FM-HR-008 ที่อนุมัติแล้ว)") }
         else { "ยังไม่มีบันทึกการอบรมที่อนุมัติในระบบ — หลักฐานยังอยู่ในแฟ้มกระดาษ/Excel".into() }, vec![]);
@@ -208,9 +208,9 @@ pub async fn evaluate(st: &S) -> Value {
         let n = |k: &str| sm[k].as_i64().unwrap_or(0);
         let mism: Vec<String> = rc["issues"].as_array().cloned().unwrap_or_default().iter()
             .filter(|i| i["level"] == json!("bad")).filter_map(|i| i["docCode"].as_str().map(String::from)).collect();
-        cs.check("doc-rev-file", "เลข Rev. ในไฟล์และแบบฟอร์มออนไลน์ตรงกับทะเบียน", "เอกสาร", "7.5", mism.is_empty(), false,
-            if mism.is_empty() { format!("ตรวจเนื้อหาไฟล์แล้ว {} ฉบับ — ไม่พบ Rev. ที่ขัดกับทะเบียน", n("scanned")) }
-            else { format!("{} ฉบับระบุ Rev. ไม่ตรงทะเบียน — ตรวจที่เมนู ควบคุม Rev. / สำเนา", mism.len()) }, mism);
+        cs.check("doc-rev-file", "เลขฉบับในไฟล์และแบบฟอร์มออนไลน์ตรงกับทะเบียน", "เอกสาร", "7.5", mism.is_empty(), false,
+            if mism.is_empty() { format!("ตรวจเนื้อหาไฟล์แล้ว {} ฉบับ — ไม่พบเลขฉบับที่ขัดกับทะเบียน", n("scanned")) }
+            else { format!("{} ฉบับระบุเลขฉบับไม่ตรงทะเบียน — ตรวจที่เมนู ควบคุมฉบับ / สำเนา", mism.len()) }, mism);
         let overdue: Vec<String> = rc["recall"].as_array().cloned().unwrap_or_default().iter()
             .filter(|c| c["overdue"] == json!(true)).filter_map(|c| c["copyNo"].as_str().map(String::from)).collect();
         cs.check("doc-copy-recall", "เรียกคืนสำเนาเอกสารฉบับเก่าครบตามกำหนด", "เอกสาร", "7.5", overdue.is_empty(), false,
@@ -399,9 +399,9 @@ pub async fn get(State(st): State<S>) -> Response {
     Json(evaluate(&st).await).into_response()
 }
 
-/// บันทึกผลการคัดกรองครั้งนี้ไว้เป็นหลักฐาน/ดูแนวโน้ม (ผู้ตรวจสอบขึ้นไป)
+/// บันทึกผลการคัดกรองครั้งนี้ไว้เป็นหลักฐาน/ดูแนวโน้ม (ผู้อนุมัติขึ้นไป)
 pub async fn save_run(State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
-    if !eform::can_review(&u.role) { return err(StatusCode::FORBIDDEN, "เฉพาะผู้ตรวจสอบ ผู้อนุมัติ หรือผู้ดูแลระบบ"); }
+    if !eform::can_approve(&u.role) { return err(StatusCode::FORBIDDEN, "เฉพาะผู้อนุมัติ หรือผู้ดูแลระบบ"); }
     let r = evaluate(&st).await;
     let Ok(c) = st.db.get().await else { return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
     let g = |k: &str| r[k].as_i64().unwrap_or(0);

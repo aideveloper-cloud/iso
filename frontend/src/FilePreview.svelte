@@ -130,8 +130,8 @@
         <div class="msub">
           {fileKind(fileExt(file)).label}{#if file.size} · {(file.size / 1024).toFixed(0)} KB{/if}
           {#if shownVer}
-            {#if isLatest}<span class="ver-badge latest inline-flex items-center gap-1 ml-1"><Icon name="circle-check" size={12} /> เวอร์ชันล่าสุด v{shownVer}</span>
-            {:else}<span class="ver-badge old inline-flex items-center gap-1 ml-1"><Icon name="alert-triangle" size={12} /> เวอร์ชันเก่า v{shownVer} · ล่าสุด v{latestVer}</span>{/if}
+            {#if isLatest}<span class="ver-badge latest inline-flex items-center gap-1 ml-1"><Icon name="circle-check" size={12} /> เวอร์ชันล่าสุด #{shownVer}</span>
+            {:else}<span class="ver-badge old inline-flex items-center gap-1 ml-1"><Icon name="alert-triangle" size={12} /> เวอร์ชันเก่า #{shownVer} · ล่าสุด #{latestVer}</span>{/if}
           {/if}
           {#if versions[0] && versions[0].source !== 'original'}<span class="mut"> · อัปเดตล่าสุด {fmtWhen(versions[0].signedAt)} โดย {versions[0].signerName}</span>{/if}
           {#if editing}<span class="ver-badge latest inline-flex items-center gap-1 ml-1"><Icon name="pencil" size={12} /> กำลังแก้ไข</span>{/if}
@@ -217,7 +217,7 @@
         {#if !isLatest}
           <div class="ver-warn">
             <Icon name="alert-triangle" size={16} />
-            <span>กำลังดูเวอร์ชันเก่า (v{shownVer}) — ฉบับล่าสุดคือ <b>v{latestVer}</b></span>
+            <span>กำลังดูเวอร์ชันเก่า (#{shownVer}) — ฉบับล่าสุดคือ <b>#{latestVer}</b></span>
             <button class="vw-btn" on:click={() => load()}>ไปเวอร์ชันล่าสุด</button>
           </div>
         {/if}

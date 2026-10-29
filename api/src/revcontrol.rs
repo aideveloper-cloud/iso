@@ -3,7 +3,7 @@
 //   ไฟล์ต้นฉบับที่ดาวน์โหลด: บันทึกเป็นสำเนา DL-<พ.ศ.>-<ลำดับ> ต่อคน/ฉบับ (ไฟล์ Excel/Word ที่เก็บไว้ในเครื่องคือที่มาของ "ใช้ Rev. เก่า")
 //   ทุกหน้าที่เปิดดู (PDF) ประทับ "สำเนาไม่ควบคุมเมื่อพิมพ์" + QR — สแกนแล้วรู้ทันทีว่ากระดาษในมือยังเป็นฉบับปัจจุบันหรือไม่
 //   DCR มีผล (Rev. ใหม่) / ยกเลิกใช้ → สำเนาทุกใบของฉบับเก่าเปลี่ยนเป็น "ต้องเรียกคืน" + งานถึงผู้ถือ จนกว่าจะยืนยันคืน/ทำลาย
-//   ฉบับเก่า/ยกเลิกใช้: ดาวน์โหลดไฟล์ต้นฉบับได้เฉพาะผู้ควบคุมเอกสาร (ผู้ตรวจสอบขึ้นไป) และ PDF ติดลายน้ำ SUPERSEDED/OBSOLETE
+//   ฉบับเก่า/ยกเลิกใช้: ดาวน์โหลดไฟล์ต้นฉบับได้เฉพาะผู้ควบคุมเอกสาร (ผู้อนุมัติขึ้นไป) และ PDF ติดลายน้ำ SUPERSEDED/OBSOLETE
 //   รายงาน DCC: สำเนาฉบับเก่าที่ยังไม่คืน · เลข Rev. ในไฟล์ไม่ตรงทะเบียน · อ้างถึงเอกสารที่ยกเลิกใช้ · แบบฟอร์มออนไลน์ไม่ตรง Rev.
 use crate::eform::{self, AuthUser};
 use crate::{doccontrol, err, now_iso, pdfview, revscan, sha256_hex, stamp, S};
@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS doc_rev_scan(
   key TEXT PRIMARY KEY,
   body TEXT NOT NULL,
   scanned_at TEXT NOT NULL);
+-- เอกสารที่ไม่ใช่แบบฟอร์ม FM ใช้เลขฉบับแบบ v: Rev.03 → v4.0 (Rev.00 = v1.0) — ทำซ้ำได้ เพราะค่าที่แปลงแล้วไม่ตรงเงื่อนไข (ต้องตรงกับ revscan::to_doc_rev)
+UPDATE versions SET rev='v' || (substring(rev from '[0-9]+')::int + 1) || '.0' WHERE rev ~* '^ *rev[. :]*[0-9]+ *$' AND upper(doc_code) NOT LIKE 'FM-%';
+UPDATE doc_changes SET from_rev='v' || (substring(from_rev from '[0-9]+')::int + 1) || '.0' WHERE from_rev ~* '^ *rev[. :]*[0-9]+ *$' AND upper(doc_code) NOT LIKE 'FM-%';
+UPDATE doc_changes SET new_rev='v' || (substring(new_rev from '[0-9]+')::int + 1) || '.0' WHERE new_rev ~* '^ *rev[. :]*[0-9]+ *$' AND upper(doc_code) NOT LIKE 'FM-%';
+UPDATE doc_acks SET rev='v' || (substring(rev from '[0-9]+')::int + 1) || '.0' WHERE rev ~* '^ *rev[. :]*[0-9]+ *$' AND upper(doc_code) NOT LIKE 'FM-%';
+UPDATE doc_copies SET rev='v' || (substring(rev from '[0-9]+')::int + 1) || '.0' WHERE rev ~* '^ *rev[. :]*[0-9]+ *$' AND upper(doc_code) NOT LIKE 'FM-%';
 ";
 
 /// ต้องเรียกคืนสำเนาฉบับเก่าภายในกี่วันหลัง Rev. ใหม่มีผล
@@ -177,7 +183,7 @@ pub async fn view_stamp(st: &S, u: &AuthUser, code: &str, v: i64, h: &HeaderMap)
 /// ไฟล์ต้นฉบับ (ไม่ว่าจะดาวน์โหลดหรือเปิด inline) ของฉบับเก่า/ยกเลิกใช้ ได้เฉพาะผู้ควบคุมเอกสาร
 /// คนอื่นดูฉบับเก่าได้ทาง /pdf ซึ่งประทับ SUPERSEDED/OBSOLETE ทุกหน้า
 pub async fn authorize_original(st: &S, u: &AuthUser, code: &str, v: i64) -> Result<(), Response> {
-    if eform::can_review(&u.role) { return Ok(()); }
+    if eform::can_approve(&u.role) { return Ok(()); }
     let Ok(c) = st.db.get().await else { return Err(db_err()) };
     let (latest, cur_rev, _) = current(st, &c, code).await;
     if doccontrol::is_obsolete(&c, code).await {
@@ -250,10 +256,10 @@ pub async fn on_reinstate(c: &impl deadpool_postgres::GenericClient, code: &str)
 #[allow(non_snake_case)]
 pub struct IssueReq { holderCode: Option<String>, location: Option<String>, note: Option<String> }
 
-/// ออกสำเนาควบคุม (ผู้ควบคุมเอกสาร = ผู้ตรวจสอบขึ้นไป) — ฉบับปัจจุบันเท่านั้น
+/// ออกสำเนาควบคุม (ผู้ควบคุมเอกสาร = ผู้อนุมัติขึ้นไป) — ฉบับปัจจุบันเท่านั้น
 pub async fn issue(Path(code): Path<String>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<IssueReq>) -> Response {
     if !st.by_code.contains_key(&code) { return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร"); }
-    if !eform::can_review(&u.role) { return err(StatusCode::FORBIDDEN, "ออกสำเนาควบคุมได้เฉพาะผู้ควบคุมเอกสาร (ผู้ตรวจสอบขึ้นไป)"); }
+    if !eform::can_approve(&u.role) { return err(StatusCode::FORBIDDEN, "ออกสำเนาควบคุมได้เฉพาะผู้ควบคุมเอกสาร (ผู้อนุมัติขึ้นไป)"); }
     let location = b.location.unwrap_or_default().trim().to_string();
     if location.is_empty() { return err(StatusCode::BAD_REQUEST, "กรุณาระบุจุดใช้งาน/ที่เก็บสำเนา เช่น โรงงาน เครื่องตัดลวด"); }
     let holder_code = b.holderCode.unwrap_or_default().trim().to_string();
@@ -294,7 +300,7 @@ pub async fn copy_pdf(Path(id): Path<i64>, State(st): State<S>, Extension(u): Ex
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(r) = load_copy(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบสำเนา") };
     let cp = copy_json(&st, &r);
-    if !(eform::can_review(&u.role) || cp["holderCode"].as_str() == Some(u.emp_code.as_str())) {
+    if !(eform::can_approve(&u.role) || cp["holderCode"].as_str() == Some(u.emp_code.as_str())) {
         return err(StatusCode::FORBIDDEN, "พิมพ์ได้เฉพาะผู้ควบคุมเอกสารหรือผู้ถือสำเนา");
     }
     if cp["kind"] != json!("print") { return err(StatusCode::BAD_REQUEST, "รายการนี้ไม่ใช่สำเนาพิมพ์"); }
@@ -324,15 +330,15 @@ pub async fn copy_pdf(Path(id): Path<i64>, State(st): State<S>, Extension(u): Ex
     };
     let prints: i64 = c.query_one("UPDATE doc_copies SET prints=prints+1 WHERE id=$1 RETURNING prints", &[&id]).await.map(|r| r.get(0)).unwrap_or(0);
     let copy_no = cp["copyNo"].as_str().unwrap_or("");
-    let _ = eform::audit(&c, &u, "copy_print", "doc_copy", copy_no, &format!("{code} v{v} ครั้งที่ {prints}")).await;
+    let _ = eform::audit(&c, &u, "copy_print", "doc_copy", copy_no, &format!("{code} #{v} ครั้งที่ {prints}")).await;
     pdfview::pdf_response(out, &format!("{copy_no} {filename}"))
 }
 
-/// ทะเบียนสำเนา — ผู้ตรวจสอบขึ้นไปเห็นทั้งหมด · คนอื่นเห็นเฉพาะที่ตนถือ
+/// ทะเบียนสำเนา — ผู้อนุมัติขึ้นไปเห็นทั้งหมด · คนอื่นเห็นเฉพาะที่ตนถือ
 pub async fn list(Query(q): Query<HashMap<String, String>>, State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let doc = q.get("doc").cloned().unwrap_or_default();
-    let mine = q.get("mine").map(|s| s == "1").unwrap_or(false) || !eform::can_review(&u.role);
+    let mine = q.get("mine").map(|s| s == "1").unwrap_or(false) || !eform::can_approve(&u.role);
     let holder = if mine { u.emp_code.clone() } else { String::new() };
     match c.query(
         &format!("SELECT {COLS} FROM doc_copies WHERE ($1='' OR doc_code=$1) AND ($2='' OR holder_code=$2) ORDER BY id DESC LIMIT 3000"),
@@ -354,7 +360,7 @@ pub async fn close(Path(id): Path<i64>, State(st): State<S>, Extension(u): Exten
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(r) = load_copy(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบสำเนา") };
     let cp = copy_json(&st, &r);
-    if !(eform::can_review(&u.role) || cp["holderCode"].as_str() == Some(u.emp_code.as_str())) {
+    if !(eform::can_approve(&u.role) || cp["holderCode"].as_str() == Some(u.emp_code.as_str())) {
         return err(StatusCode::FORBIDDEN, "ปิดสำเนาได้เฉพาะผู้ถือหรือผู้ควบคุมเอกสาร");
     }
     let n = c.execute(
@@ -406,7 +412,7 @@ pub async fn verify(Path(token): Path<String>, State(st): State<S>) -> Response 
 fn issue_item(st: &S, code: &str, kind: &str, level: &str, detail: String) -> Value {
     json!({ "docCode": code, "docName": st.by_code.get(code).and_then(|d| d["name"].as_str()).unwrap_or(""), "kind": kind, "level": level, "detail": detail })
 }
-fn revs_text(v: &[u32]) -> String { v.iter().map(|n| format!("Rev.{n}")).collect::<Vec<_>>().join(", ") }
+fn revs_text(code: &str, v: &[u32]) -> String { v.iter().map(|n| revscan::rev_label(code, *n)).collect::<Vec<_>>().join(", ") }
 
 /// ผลการอ่านไฟล์ (แคชตาม SHA-256 ของไฟล์ + รุ่นของกติกา)
 async fn scan_cached(c: &impl deadpool_postgres::GenericClient, bytes: Vec<u8>, ext: &str, code: &str) -> Value {
@@ -461,7 +467,7 @@ pub async fn evaluate(st: &S) -> Value {
         let Ok((_, abs, ext, filename)) = crate::resolve(st, &code, None).await else { continue };
         let reg_n = revscan::rev_num(&reg_rev);
         if let (Some(f), Some(r)) = (revscan::find_revs(&filename).first(), reg_n) {
-            if *f != r { issues.push(issue_item(st, &code, "filename", "warn", format!("ชื่อไฟล์ “{filename}” ระบุ Rev.{f} แต่ทะเบียนเป็น {reg_rev}"))); }
+            if *f != r { issues.push(issue_item(st, &code, "filename", "warn", format!("ชื่อไฟล์ “{filename}” ระบุ {} แต่ทะเบียนเป็น {reg_rev}", revscan::rev_label(&code, *f)))); }
         }
         if !revscan::scannable(&ext) { unscannable += 1; continue; }
         let Ok(bytes) = std::fs::read(&abs) else { continue };
@@ -481,18 +487,18 @@ pub async fn evaluate(st: &S) -> Value {
                 else { (&body, "ในไฟล์ระบุ".to_string()) };
             let higher: Vec<u32> = main.iter().copied().filter(|n| *n > r).collect();
             if !higher.is_empty() {
-                issues.push(issue_item(st, &code, "rev", "bad", format!("{where_} {} สูงกว่าทะเบียน ({reg_rev}) — แก้ไฟล์โดยไม่ผ่าน DCR หรือทะเบียนยังไม่ปรับ", revs_text(&higher))));
+                issues.push(issue_item(st, &code, "rev", "bad", format!("{where_} {} สูงกว่าทะเบียน ({reg_rev}) — แก้ไฟล์โดยไม่ผ่าน DCR หรือทะเบียนยังไม่ปรับ", revs_text(&code, &higher))));
             } else if !main.is_empty() && !main.contains(&r) {
-                issues.push(issue_item(st, &code, "rev", "bad", format!("{where_} {} แต่ทะเบียนเป็น {reg_rev}", revs_text(main))));
+                issues.push(issue_item(st, &code, "rev", "bad", format!("{where_} {} แต่ทะเบียนเป็น {reg_rev}", revs_text(&code, main))));
             } else if main.is_empty() && names.is_empty() {
-                issues.push(issue_item(st, &code, "norev", "info", format!("ไม่พบเลข Rev. ในไฟล์ — ควรระบุ {reg_rev} ที่หัวหรือท้ายกระดาษ")));
+                issues.push(issue_item(st, &code, "norev", "info", format!("ไม่พบเลขฉบับในไฟล์ — ควรระบุ {reg_rev} ที่หัวหรือท้ายกระดาษ")));
             } else {
                 // ชื่อชีตระบุ Rev. อื่น (เช่น คัดลอกชีตเตรียมฉบับใหม่ไว้) — ไม่ใช่ตัวตัดสิน แต่ควรเก็บให้ตรง
                 let odd: Vec<u32> = names.iter().copied().filter(|n| *n != r).collect();
                 if !odd.is_empty() {
-                    issues.push(issue_item(st, &code, "sheetname", "warn", format!("ชื่อชีตระบุ {} ขณะที่ทะเบียนเป็น {reg_rev} — ตั้งชื่อชีตให้ตรงฉบับปัจจุบัน", revs_text(&odd))));
+                    issues.push(issue_item(st, &code, "sheetname", "warn", format!("ชื่อชีตระบุ {} ขณะที่ทะเบียนเป็น {reg_rev} — ตั้งชื่อชีตให้ตรงฉบับปัจจุบัน", revs_text(&code, &odd))));
                 } else if main.is_empty() && !names.contains(&r) {
-                    issues.push(issue_item(st, &code, "norev", "info", format!("ไม่พบเลข Rev. ในไฟล์ — ควรระบุ {reg_rev} ที่หัวหรือท้ายกระดาษ")));
+                    issues.push(issue_item(st, &code, "norev", "info", format!("ไม่พบเลขฉบับในไฟล์ — ควรระบุ {reg_rev} ที่หัวหรือท้ายกระดาษ")));
                 }
             }
         }
@@ -538,8 +544,8 @@ pub async fn evaluate(st: &S) -> Value {
     json!({ "summary": summary, "recall": recall, "issues": issues })
 }
 
-/// GET /api/revcontrol (ผู้ตรวจสอบขึ้นไป)
+/// GET /api/revcontrol (ผู้อนุมัติขึ้นไป)
 pub async fn report(State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
-    if !eform::can_review(&u.role) { return err(StatusCode::FORBIDDEN, "เฉพาะผู้ควบคุมเอกสาร (ผู้ตรวจสอบขึ้นไป)"); }
+    if !eform::can_approve(&u.role) { return err(StatusCode::FORBIDDEN, "เฉพาะผู้ควบคุมเอกสาร (ผู้อนุมัติขึ้นไป)"); }
     Json(evaluate(&st).await).into_response()
 }

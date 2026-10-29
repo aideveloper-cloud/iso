@@ -10,9 +10,9 @@ use axum::{
 use serde_json::{json, Value};
 use std::{collections::HashMap, path::PathBuf};
 
-/// GET /api/audit-log?q=&action=&actor=&from=YYYY-MM-DD&to=YYYY-MM-DD&limit= — ผู้ตรวจสอบขึ้นไป
+/// GET /api/audit-log?q=&action=&actor=&from=YYYY-MM-DD&to=YYYY-MM-DD&limit= — ผู้อนุมัติขึ้นไป
 pub async fn list(State(st): State<S>, Extension(u): Extension<AuthUser>, Query(q): Query<HashMap<String, String>>) -> Response {
-    if !eform::can_review(&u.role) { return err(StatusCode::FORBIDDEN, "ดูบันทึกการใช้งานได้เฉพาะผู้ตรวจสอบ ผู้อนุมัติ หรือผู้ดูแลระบบ"); }
+    if !eform::can_approve(&u.role) { return err(StatusCode::FORBIDDEN, "ดูบันทึกการใช้งานได้เฉพาะผู้อนุมัติ หรือผู้ดูแลระบบ"); }
     let Ok(c) = st.db.get().await else { return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
     let g = |k: &str| q.get(k).map(|v| v.trim().to_string()).unwrap_or_default();
     let needle = format!("%{}%", g("q"));

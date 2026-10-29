@@ -1,5 +1,5 @@
 <script>
-  // มติและงานติดตาม (9.3.3) — ร่าง: แก้ทุกช่อง · ติดตามงาน: เจ้าของงานอัปเดตความคืบหน้า/หลักฐาน, ผู้ตรวจสอบทวนสอบประสิทธิผล
+  // มติและงานติดตาม (9.3.3) — ร่าง: แก้ทุกช่อง · ติดตามงาน: เจ้าของงานอัปเดตความคืบหน้า/หลักฐาน, ผู้อนุมัติทวนสอบประสิทธิผล
   import { createEventDispatcher } from 'svelte'
   import { api } from './lib/api.js'
   import { ACT_STATUS, EFFECT, APPROVAL, PRIORITY, isLate } from './lib/mreview.js'
@@ -27,7 +27,7 @@
     if (q.trim().length < 1) { people = []; return }
     try { people = (await api.employees(q.trim())).slice(0, 8) } catch (e) { people = [] }
   }
-  const canUpdate = (a) => monitoring && (a.ownerCode === me?.empCode || ['reviewer', 'approver', 'admin'].includes(me?.role))
+  const canUpdate = (a) => monitoring && (a.ownerCode === me?.empCode || ['approver', 'admin'].includes(me?.role))
   const canVerify = (a) => monitoring && m.can.verify && a.status === 'completed' && (a.ownerCode !== me?.empCode || me?.role === 'admin')
 
   async function save() {
@@ -57,7 +57,7 @@
   <span class="flex-1"></span>
   {#if draftMode}<button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => open(null)}><Icon name="plus" size={14} /> เพิ่มงาน</button>{/if}
 </div>
-{#if monitoring}<p class="mnote !mt-0">รายละเอียดงานล็อกตามที่อนุมัติ — เจ้าของงานอัปเดตความคืบหน้าและหลักฐาน · ผู้ตรวจสอบ (ที่ไม่ใช่เจ้าของงาน) ทวนสอบประสิทธิผลก่อนปิดการประชุม</p>{/if}
+{#if monitoring}<p class="mnote !mt-0">รายละเอียดงานล็อกตามที่อนุมัติ — เจ้าของงานอัปเดตความคืบหน้าและหลักฐาน · ผู้อนุมัติ (ที่ไม่ใช่เจ้าของงาน) ทวนสอบประสิทธิผลก่อนปิดการประชุม</p>{/if}
 
 {#if !m.actions.length}
   <div class="empty-state"><Icon name="flag" size={34} stroke={1.5} /><p>ยังไม่มีงานติดตาม{draftMode ? ' — กด “เพิ่มงาน”' : ''}</p></div>
@@ -135,7 +135,7 @@
             <select bind:value={edit.effectiveness}><option value="pending">รอทวนสอบ</option><option value="effective">มีประสิทธิผล</option><option value="not_effective">ไม่มีประสิทธิผล (กลับไปดำเนินการต่อ)</option></select>
           </div>
         {:else if edit.status === 'completed'}
-          <p class="mnote">ประสิทธิผล: {EFFECT[edit.effectiveness]} — ผู้ตรวจสอบที่ไม่ใช่เจ้าของงานเป็นผู้ทวนสอบ</p>
+          <p class="mnote">ประสิทธิผล: {EFFECT[edit.effectiveness]} — ผู้อนุมัติที่ไม่ใช่เจ้าของงานเป็นผู้ทวนสอบ</p>
         {/if}
       {/if}
       <div class="text-[12px] font-bold text-mut mb-1">หลักฐาน</div>

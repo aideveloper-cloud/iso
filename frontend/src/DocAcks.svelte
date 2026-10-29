@@ -11,7 +11,7 @@
   export let code
   const dispatch = createEventDispatcher()
 
-  const STATUS = { pending: 'รอรับทราบ', acknowledged: 'รับทราบแล้ว', superseded: 'ถูกแทนที่ (Rev. ใหม่)' }
+  const STATUS = { pending: 'รอรับทราบ', acknowledged: 'รับทราบแล้ว', superseded: 'ถูกแทนที่ (ฉบับใหม่)' }
   let editing = false, draft = [], err = '', msg = '', busy = false, showOld = false, people = [], pq = ''
 
   $: cur = data.acks.filter((a) => a.version === data.currentVersion)
@@ -51,7 +51,7 @@
       {#if data.canManage && !editing}<button class="mbtn gh" on:click={startEdit}>แก้ไข</button>{/if}</div>
     {#if !editing}
       <div class="rd-ev !mt-0">{#each data.targets as t}<span class="rd-chip doc">{label(t)}</span>{:else}<span class="mut text-[12.5px]">ยังไม่กำหนด</span>{/each}</div>
-      <p class="mut text-[12px] mt-2 mb-0">ผู้มีรายชื่อ {data.people.length} คน · ทุกครั้งที่ DCR อนุมัติ Rev. ใหม่ ระบบส่งคำขอรับทราบให้อัตโนมัติ (ครบกำหนด 14 วัน)</p>
+      <p class="mut text-[12px] mt-2 mb-0">ผู้มีรายชื่อ {data.people.length} คน · ทุกครั้งที่ DCR อนุมัติฉบับใหม่ ระบบส่งคำขอรับทราบให้อัตโนมัติ (ครบกำหนด 14 วัน)</p>
     {:else}
       <label class="sgchk !mb-2"><input type="checkbox" checked={has('all', '*')} on:change={() => toggle('all', '*')} /><span>ทุกคนในบริษัท</span></label>
       <div class="text-[12px] font-bold text-mut mb-1">แผนก</div>
@@ -70,7 +70,7 @@
     {/if}
   </section>
   <section class="sec">
-    <h2 class="!mb-2">ฉบับปัจจุบัน {data.currentRev || ''} <span class="mut text-[12px]">(v{data.currentVersion})</span></h2>
+    <h2 class="!mb-2">ฉบับปัจจุบัน {data.currentRev || ''} <span class="mut text-[12px]">(#{data.currentVersion})</span></h2>
     <div class="rd-mv">{cur.length ? Math.round((done / cur.length) * 100) : 0}%</div>
     <div class="rd-mn"><i class="dot {cur.length && done === cur.length ? 'ok' : 'warn'}"></i>รับทราบแล้ว {done}/{cur.length} คน{#if cur.some((a) => a.overdue)} · <b class="text-danger">เลยกำหนด {cur.filter((a) => a.overdue).length}</b>{/if}</div>
     {#if data.canManage}
@@ -99,7 +99,7 @@
 {#if old.length}
   <button class="mbtn gh mt-3" on:click={() => (showOld = !showOld)}>{showOld ? 'ซ่อน' : 'แสดง'}ประวัติการรับทราบฉบับก่อน ({old.length})</button>
   {#if showOld}
-    <table class="chg-table mt-2"><thead><tr><th>Rev.</th><th>พนักงาน</th><th>สถานะ</th><th>รับทราบ</th></tr></thead>
-      <tbody>{#each old as a}<tr><td>{a.rev} (v{a.version})</td><td>{a.empName}</td><td>{STATUS[a.status]}</td><td>{a.ackedAt ? fmtWhen(a.ackedAt) : '—'}</td></tr>{/each}</tbody></table>
+    <table class="chg-table mt-2"><thead><tr><th>ฉบับ</th><th>พนักงาน</th><th>สถานะ</th><th>รับทราบ</th></tr></thead>
+      <tbody>{#each old as a}<tr><td>{a.rev} (#{a.version})</td><td>{a.empName}</td><td>{STATUS[a.status]}</td><td>{a.ackedAt ? fmtWhen(a.ackedAt) : '—'}</td></tr>{/each}</tbody></table>
   {/if}
 {/if}

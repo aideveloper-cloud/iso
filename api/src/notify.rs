@@ -1,5 +1,5 @@
 // งานของฉัน / การแจ้งเตือน — รวมทุกงานที่รอผู้ใช้คนนี้จากทุกโมดูล (คำนวณสดจากข้อมูลจริง ไม่มีคิวแจ้งเตือนแยก)
-//   DCR รอตรวจ/อนุมัติ · แบบฟอร์มรออนุมัติ · เอกสารที่ต้องรับทราบ · CAR/DAR/PAR ที่รับผิดชอบ/รอทวนสอบ
+//   DCR รออนุมัติ · แบบฟอร์มรออนุมัติ · เอกสารที่ต้องรับทราบ · CAR/DAR/PAR ที่รับผิดชอบ/รอทวนสอบ
 //   · งานจากการทบทวนฝ่ายบริหาร · การตรวจติดตามที่เป็นหัวหน้าผู้ตรวจ · ผล KPI ที่ต้องบันทึก · ความเสี่ยงที่ถึงกำหนดทบทวน
 //   · เครื่องมือวัดที่ถึงกำหนดสอบเทียบ/ค้างประเมินผลกระทบ · ผู้ขายที่ถึงกำหนดประเมินซ้ำ/ผลประเมินต่ำที่ยังไม่มี CAR
 //   · สำเนาเอกสารฉบับเก่าที่ต้องคืน/ทำลาย (ผู้ถือ) และที่เลยกำหนดเรียกคืน (ผู้ควบคุมเอกสาร)
@@ -45,17 +45,15 @@ pub async fn items(st: &S, u: &AuthUser) -> Vec<Value> {
     let Ok(c) = st.db.get().await else { return out };
     let me = u.emp_code.as_str();
 
-    // คำขอเปลี่ยนแปลงเอกสาร (DCR) ที่รอตรวจสอบ/อนุมัติ
+    // คำขอเปลี่ยนแปลงเอกสาร (DCR) ที่รออนุมัติ
     for ch in crate::doccontrol::pending_items(st, u).await {
         let code = s(&ch, "docCode");
         let name = st.by_code.get(&code).and_then(|d| d["name"].as_str()).unwrap_or("").to_string();
-        let step = if ch["status"] == json!("review") { "รอตรวจสอบ" } else { "รออนุมัติ" };
-        out.push(item("dcr", "dcr", &s(&ch, "refNo"), &format!("{step}: {code} {name}"), format!("ผู้ขอ {} · {}", s(&ch, "preparedName"), s(&ch, "reason")), "", "todo"));
+        out.push(item("dcr", "dcr", &s(&ch, "refNo"), &format!("รออนุมัติ: {code} {name}"), format!("ผู้ขอ {} · {}", s(&ch, "preparedName"), s(&ch, "reason")), "", "todo"));
     }
-    // แบบฟอร์มที่รอตรวจสอบ/อนุมัติ
+    // แบบฟอร์มที่รออนุมัติ
     for f in eform::pending_items(&c, u).await.unwrap_or_default() {
-        let step = if f["status"] == json!("review") { "รอตรวจสอบ" } else { "รออนุมัติ" };
-        out.push(item("form", "forms", &s(&f, "refNo"), &format!("{step}: {} {}", s(&f, "formCode"), s(&f, "title")), format!("ผู้จัดทำ {}", s(&f, "preparedName")), "", "todo"));
+        out.push(item("form", "forms", &s(&f, "refNo"), &format!("รออนุมัติ: {} {}", s(&f, "formCode"), s(&f, "title")), format!("ผู้จัดทำ {}", s(&f, "preparedName")), "", "todo"));
     }
     // เอกสารที่ต้องรับทราบ
     if let Ok(rows) = c.query("SELECT doc_code,rev,due_date FROM doc_acks WHERE emp_code=$1 AND status='pending' ORDER BY due_date", &[&me]).await {
@@ -77,7 +75,7 @@ pub async fn items(st: &S, u: &AuthUser) -> Vec<Value> {
         }
     }
     // ผู้ควบคุมเอกสาร: สำเนาฉบับเก่าของผู้อื่นที่เลยกำหนดเรียกคืน
-    if eform::can_review(&u.role) {
+    if eform::can_approve(&u.role) {
         let cutoff = (chrono::Utc::now() - chrono::Duration::days(revcontrol::RECALL_DAYS)).to_rfc3339();
         let n: i64 = c.query_one("SELECT COUNT(*) FROM doc_copies WHERE status='recall' AND holder_code<>$1 AND recall_at<$2", &[&me, &cutoff])
             .await.map(|r| r.get(0)).unwrap_or(0);
@@ -85,13 +83,13 @@ pub async fn items(st: &S, u: &AuthUser) -> Vec<Value> {
             out.push(item("copy", "rev", "", &format!("ติดตามเรียกคืนสำเนาเอกสารฉบับเก่า {n} รายการ"), format!("เลยกำหนด {} วันหลังออก Rev. ใหม่", revcontrol::RECALL_DAYS), "", "overdue"));
         }
     }
-    // CAR/DAR/PAR — ที่ตนรับผิดชอบ และที่รอทวนสอบประสิทธิผล (ผู้ตรวจสอบที่ไม่ใช่ผู้รับผิดชอบ)
+    // CAR/DAR/PAR — ที่ตนรับผิดชอบ และที่รอทวนสอบประสิทธิผล (ผู้อนุมัติที่ไม่ใช่ผู้รับผิดชอบ)
     if let Ok(rows) = c.query("SELECT ref_no,kind,title,status,due_date,assignee_code,verify_due FROM actions WHERE status IN ('open','in_progress','verify')", &[]).await {
         for r in rows {
             let (refno, kind, title, status, due, assignee, vdue): (String, String, String, String, String, String, String) =
                 (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6));
             if status == "verify" {
-                if eform::can_review(&u.role) && (assignee != me || eform::is_admin(&u.role)) {
+                if eform::can_approve(&u.role) && (assignee != me || eform::is_admin(&u.role)) {
                     out.push(item("capa", "act", &refno, &format!("ทวนสอบประสิทธิผล {kind}: {title}"), String::new(), &vdue, urgency(&vdue, &today)));
                 }
             } else if assignee == me {

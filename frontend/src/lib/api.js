@@ -47,7 +47,7 @@ export const api = {
   versions: (code) => send(`/api/docs/${encodeURIComponent(code)}/versions`).then((r) => r.json()),
   content: (code, v) =>
     send(`/api/docs/${encodeURIComponent(code)}/content${v ? '?v=' + v : ''}`).then((r) => r.json()),
-  // คำขอเปลี่ยนแปลงเอกสาร (DCR) — เอกสารในทะเบียนแก้ได้ผ่านขั้นตรวจสอบ/อนุมัติเท่านั้น
+  // คำขอเปลี่ยนแปลงเอกสาร (DCR) — เอกสารในทะเบียนแก้ได้ผ่านขั้นอนุมัติเท่านั้น
   docChanges: (code) => send(`/api/docs/${encodeURIComponent(code)}/changes`).then((r) => r.json()),
   changeCreate: (code, payload) => postJson(`/api/docs/${encodeURIComponent(code)}/changes`, payload),
   changes: () => send('/api/changes').then((r) => r.json()),
@@ -64,7 +64,7 @@ export const api = {
   editCommit: (id, note) => postJson(`/api/edit/${id}/commit`, { note }),
   ovEditMine: (path) => send(`/api/overview/edit?path=${encodeURIComponent(path)}`).then((r) => r.json()),
   ovEditStart: (path) => postJson('/api/overview/edit', { path }),
-  // ควบคุม Rev. / สำเนาเอกสาร (7.5.3.2) — ดู revcontrol.rs
+  // ควบคุมฉบับ / สำเนาเอกสาร (7.5.3.2) — ดู revcontrol.rs
   revControl: () => send('/api/revcontrol').then((r) => r.json()),
   copies: (q) => send('/api/copies?' + new URLSearchParams(q || {})).then((r) => r.json()),
   copyIssue: (code, payload) => postJson(`/api/docs/${encodeURIComponent(code)}/copies`, payload),

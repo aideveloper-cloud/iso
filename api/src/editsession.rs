@@ -136,7 +136,7 @@ async fn source_file(st: &S, u: &AuthUser, client: &impl deadpool_postgres::Gene
     }
     if u.role == "viewer" { return Err(err(StatusCode::FORBIDDEN, "บัญชีผู้อ่านอย่างเดียวแก้ไขเอกสารไม่ได้")); }
     if doccontrol::is_obsolete(client, code).await { return Err(err(StatusCode::CONFLICT, "เอกสารนี้ถูกยกเลิกใช้แล้ว — ต้องนำกลับมาใช้ก่อนจึงจะแก้ไขได้")); }
-    if let Ok(Some(r)) = client.query_opt("SELECT ref_no FROM doc_changes WHERE doc_code=$1 AND status IN ('review','approve','returned')", &[&code]).await {
+    if let Ok(Some(r)) = client.query_opt("SELECT ref_no FROM doc_changes WHERE doc_code=$1 AND status IN ('approve','returned')", &[&code]).await {
         return Err(err(StatusCode::CONFLICT, &format!("มีคำขอ {} ที่ยังไม่จบอยู่แล้ว — ดำเนินการให้เสร็จหรือยกเลิกก่อน", r.get::<_, String>(0))));
     }
     let (_, abs, ext, filename) = crate::resolve(st, code, None).await?;

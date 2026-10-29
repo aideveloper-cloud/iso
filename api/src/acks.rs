@@ -193,7 +193,7 @@ pub async fn doc(Path(code): Path<String>, State(st): State<S>, Extension(u): Ex
         "people": people.iter().map(|(c, n, d)| json!({ "code": c, "name": n, "dept": d })).collect::<Vec<_>>(),
         "currentVersion": cur.as_ref().map(|x| x.0), "currentRev": cur.as_ref().map(|x| x.1.clone()),
         "acks": acks, "mine": mine,
-        "canManage": eform::can_review(&u.role),
+        "canManage": eform::can_approve(&u.role),
     })).into_response()
 }
 
@@ -202,10 +202,10 @@ pub struct Target { r#type: String, value: String }
 #[derive(Deserialize)]
 pub struct DistReq { targets: Vec<Target> }
 
-/// ตั้งรายชื่อแจกจ่าย (ผู้ตรวจสอบขึ้นไป) — ส่งรายการว่าง = กลับไปใช้ค่าเริ่มต้น
+/// ตั้งรายชื่อแจกจ่าย (ผู้อนุมัติขึ้นไป) — ส่งรายการว่าง = กลับไปใช้ค่าเริ่มต้น
 pub async fn set_distribution(Path(code): Path<String>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<DistReq>) -> Response {
     if !st.by_code.contains_key(&code) { return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร"); }
-    if !eform::can_review(&u.role) { return forbid("กำหนดการแจกจ่ายได้เฉพาะผู้ตรวจสอบ ผู้อนุมัติ หรือผู้ดูแลระบบ"); }
+    if !eform::can_approve(&u.role) { return forbid("กำหนดการแจกจ่ายได้เฉพาะผู้อนุมัติ หรือผู้ดูแลระบบ"); }
     let Ok(mut c) = st.db.get().await else { return db_err() };
     let mut clean = vec![];
     for t in b.targets.into_iter().take(200) {
@@ -227,25 +227,25 @@ pub async fn set_distribution(Path(code): Path<String>, State(st): State<S>, Ext
     doc(Path(code), State(st), Extension(u)).await
 }
 
-/// ส่งคำขอรับทราบฉบับปัจจุบันให้ทุกคนในรายชื่อที่ยังไม่ได้รับ (ผู้ตรวจสอบขึ้นไป — เช่นตอนเริ่มใช้ระบบ หรือเพิ่มคนใหม่)
+/// ส่งคำขอรับทราบฉบับปัจจุบันให้ทุกคนในรายชื่อที่ยังไม่ได้รับ (ผู้อนุมัติขึ้นไป — เช่นตอนเริ่มใช้ระบบ หรือเพิ่มคนใหม่)
 pub async fn request(Path(code): Path<String>, State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
     if !st.by_code.contains_key(&code) { return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร"); }
-    if !eform::can_review(&u.role) { return forbid("ส่งคำขอรับทราบได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if !eform::can_approve(&u.role) { return forbid("ส่งคำขอรับทราบได้เฉพาะผู้อนุมัติขึ้นไป"); }
     let Ok(c) = st.db.get().await else { return db_err() };
     if c.query_opt("SELECT 1 FROM doc_status WHERE doc_code=$1 AND status='obsolete'", &[&code]).await.ok().flatten().is_some() { return bad("เอกสารนี้ยกเลิกใช้แล้ว"); }
     let Some((v, rev, sha)) = current_version(&st, &c, &code).await else { return bad("ยังไม่มีเวอร์ชันในระบบ") };
     let n = request_for(&st, &c, &code, v, &rev, &sha, &u.name).await;
-    let _ = eform::audit(&c, &u, "ack_request", "document", &code, &format!("{rev} v{v} ส่ง {n} คน")).await;
+    let _ = eform::audit(&c, &u, "ack_request", "document", &code, &format!("{rev} #{v} ส่ง {n} คน")).await;
     let mut resp = doc(Path(code), State(st), Extension(u)).await;
     resp.headers_mut().insert("x-requested", n.to_string().parse().unwrap());
     resp
 }
 
-/// ส่งคำขอรับทราบฉบับปัจจุบันของเอกสารหลายฉบับพร้อมกัน (ผู้ตรวจสอบขึ้นไป) — เช่น ทุกฉบับของแผนก
+/// ส่งคำขอรับทราบฉบับปัจจุบันของเอกสารหลายฉบับพร้อมกัน (ผู้อนุมัติขึ้นไป) — เช่น ทุกฉบับของแผนก
 #[derive(Deserialize)]
 pub struct BulkReq { codes: Vec<String> }
 pub async fn request_bulk(State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<BulkReq>) -> Response {
-    if !eform::can_review(&u.role) { return forbid("ส่งคำขอรับทราบได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if !eform::can_approve(&u.role) { return forbid("ส่งคำขอรับทราบได้เฉพาะผู้อนุมัติขึ้นไป"); }
     let Ok(c) = st.db.get().await else { return db_err() };
     let (mut docs, mut people) = (0, 0);
     for code in b.codes.iter().filter(|x| st.by_code.contains_key(*x)).take(500) {
@@ -281,13 +281,13 @@ pub async fn acknowledge(Path(id): Path<i64>, State(st): State<S>, Extension(u):
         "INSERT INTO training_log(record_id,emp_code,name,course,train_date,result,ref_no,dept) VALUES(0,$1,$2,$3,$4,'อ่านและเข้าใจแล้ว',$5,$6)",
         &[&u.emp_code, &u.name, &course, &today(), &format!("{code} {}", s(&a, "rev")), &u.dept],
     ).await;
-    let _ = eform::audit(&c, &u, "ack_sign", "document", &code, &format!("{} v{}", s(&a, "rev"), a["version"])).await;
+    let _ = eform::audit(&c, &u, "ack_sign", "document", &code, &format!("{} #{}", s(&a, "rev"), a["version"])).await;
     Json(json!({ "ok": true })).into_response()
 }
 
-/// ภาพรวมการรับทราบ (ผู้ตรวจสอบขึ้นไป): ต่อเอกสาร (ฉบับปัจจุบัน) และรายการค้าง/เลยกำหนด
+/// ภาพรวมการรับทราบ (ผู้อนุมัติขึ้นไป): ต่อเอกสาร (ฉบับปัจจุบัน) และรายการค้าง/เลยกำหนด
 pub async fn overview(State(st): State<S>, Extension(u): Extension<AuthUser>, Query(q): Query<HashMap<String, String>>) -> Response {
-    if !eform::can_review(&u.role) { return forbid("ดูภาพรวมได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if !eform::can_approve(&u.role) { return forbid("ดูภาพรวมได้เฉพาะผู้อนุมัติขึ้นไป"); }
     let Ok(c) = st.db.get().await else { return db_err() };
     let rows = c.query(&format!("SELECT {COLS} FROM doc_acks WHERE status IN ('pending','acknowledged') AND version=(SELECT MAX(v.version) FROM versions v WHERE v.doc_code=doc_acks.doc_code) ORDER BY doc_code, emp_code"), &[]).await.unwrap_or_default();
     let all: Vec<Value> = rows.iter().map(|r| ack_json(&st, r)).collect();

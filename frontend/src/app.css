@@ -400,7 +400,7 @@
   @media (max-width: 800px) { .cl-wrap { grid-template-columns: 1fr; } .cl-list { max-height: 260px; } }
   /* ทบทวนฝ่ายบริหาร (ต่อยอดจาก management-review-dashboard ในธีม KO) */
   .status-badge.mr-draft { background: #eef1f6; color: theme(colors.mut); }
-  .status-badge.mr-review, .status-badge.mr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .status-badge.mr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
   .status-badge.mr-monitoring { background: #e6ecf6; color: theme(colors.brand.DEFAULT); }
   .status-badge.mr-closed { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
   .status-badge.mr-superseded { background: #eef1f6; color: theme(colors.faint); text-decoration: line-through; }
@@ -425,7 +425,6 @@
   .mr-people button:hover { background: #f1f6fc; }
   .role-pill { @apply text-[11px] font-bold px-[8px] py-[2px] rounded-[20px] whitespace-nowrap; background: #eef1f6; color: theme(colors.mut); }
   .role-pill.r-preparer { background: #e6ecf6; color: theme(colors.brand.DEFAULT); }
-  .role-pill.r-reviewer { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
   .role-pill.r-approver { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
   .role-pill.r-admin { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
   .perm-table td:first-child { min-width: 320px; }
@@ -496,7 +495,7 @@
   .ia-res.on { border-color: currentColor; box-shadow: 0 0 0 2px rgba(11,54,121,.15); }
   button.ia-res:disabled { @apply opacity-40 cursor-not-allowed; }
   /* คำขอเปลี่ยนแปลงเอกสาร (DCR) */
-  .status-badge.dcr-review, .status-badge.dcr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .status-badge.dcr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
   .status-badge.dcr-returned { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
   .status-badge.dcr-effective { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
   .status-badge.dcr-cancelled { background: #eef1f5; color: theme(colors.mut); }

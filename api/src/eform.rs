@@ -101,6 +101,9 @@ CREATE TABLE IF NOT EXISTS form_seq(
 CREATE INDEX IF NOT EXISTS idx_fr_code ON form_records(form_code);
 CREATE INDEX IF NOT EXISTS idx_fr_status ON form_records(status);
 CREATE INDEX IF NOT EXISTS idx_steps_rec ON form_steps(record_id);
+-- ยกเลิกบทบาทผู้ตรวจสอบ: ผู้ตรวจสอบเดิมเป็นผู้อนุมัติ และใบที่ค้างรอตรวจสอบย้ายไปรออนุมัติ
+UPDATE employees SET role='approver' WHERE role='reviewer';
+UPDATE form_records SET status='approve' WHERE status='review';
 ";
 
 const RCOLS: &str = "id,form_code,form_rev,ref_no,status,title,dept,data,prepared_by,prepared_name,prepared_position,rev_no,family_id,checkin_token,cancel_reason,created_at,updated_at,submitted_at";
@@ -181,9 +184,12 @@ fn th_month(m: usize) -> &'static str {
     ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."].get(m).copied().unwrap_or("")
 }
 
-pub(crate) fn can_review(role: &str) -> bool { matches!(role, "reviewer" | "approver" | "admin") }
 pub(crate) fn can_approve(role: &str) -> bool { matches!(role, "approver" | "admin") }
 pub(crate) fn is_admin(role: &str) -> bool { role == "admin" }
+/// แบบฟอร์มที่ต้องอนุมัติ — ขั้น "review" ใน approval_flow ของ schema เดิมไม่ใช้แล้ว (ยกเลิกบทบาทผู้ตรวจสอบ)
+fn has_approve_step(schema: &Value) -> bool {
+    schema["approval_flow"].as_array().is_some_and(|f| f.iter().any(|s| matches!(s["step"].as_str(), Some("review" | "approve"))))
+}
 fn editable_status(s: &str) -> bool { matches!(s, "draft" | "returned") }
 
 pub(crate) fn limited(st: &S, key: &str) -> bool {
@@ -264,13 +270,9 @@ fn user_json(u: &AuthUser) -> Value {
 
 async fn pending_count(st: &S, u: &AuthUser) -> i64 {
     let Ok(client) = st.db.get().await else { return 0 };
-    let Ok(rows) = client.query("SELECT status, prepared_by FROM form_records WHERE status IN ('review','approve')", &[]).await else { return 0 };
-    rows.iter().filter(|r| {
-        let status: String = r.get(0);
-        let by: String = r.get(1);
-        if !is_admin(&u.role) && by == u.emp_code { return false; }
-        (status == "review" && can_review(&u.role)) || (status == "approve" && can_approve(&u.role))
-    }).count() as i64
+    if !can_approve(&u.role) { return 0 }
+    let Ok(rows) = client.query("SELECT prepared_by FROM form_records WHERE status='approve'", &[]).await else { return 0 };
+    rows.iter().filter(|r| is_admin(&u.role) || r.get::<_, String>(0) != u.emp_code).count() as i64
 }
 
 #[derive(Deserialize)]
@@ -417,7 +419,7 @@ pub struct EmpBody {
     employees: Option<Vec<EmpItem>>, csv: Option<String>, create: Option<bool>,
 }
 
-fn valid_role(r: &str) -> bool { matches!(r, "preparer" | "reviewer" | "approver" | "admin" | "viewer") }
+fn valid_role(r: &str) -> bool { matches!(r, "preparer" | "approver" | "admin" | "viewer") }
 
 async fn upsert_emp(client: &tokio_postgres::Client, code: &str, name: &str, name_en: &str, position: &str, dept: &str, role: &str, status: &str, manager: &str, pin: Option<&str>) -> Result<(), String> {
     if code.trim().is_empty() || name.trim().is_empty() { return Err("ต้องมีรหัสและชื่อ".into()); }
@@ -811,9 +813,7 @@ pub async fn record_submit(State(st): State<S>, Extension(u): Extension<AuthUser
         }))).into_response();
     }
     if let Err(e) = validate_data(&schema, &cur["data"]) { return err(StatusCode::BAD_REQUEST, &e); }
-    let flow = schema["approval_flow"].as_array().cloned().unwrap_or_default();
-    let next_status = flow.first().and_then(|s| s["step"].as_str()).unwrap_or("approved");
-    let next_status = if matches!(next_status, "review" | "approve") { next_status } else { "approved" };
+    let next_status = if has_approve_step(&schema) { "approve" } else { "approved" };
     let tx = match client.transaction().await { Ok(t) => t, Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()) };
     let mut ref_no = cur["refNo"].as_str().unwrap_or("").to_string();
     if ref_no.starts_with("DRAFT-") || ref_no.is_empty() {
@@ -877,20 +877,9 @@ pub async fn record_act(State(st): State<S>, Extension(u): Extension<AuthUser>, 
     if !pass && !send_back { return err(StatusCode::BAD_REQUEST, "การดำเนินการไม่ถูกต้อง"); }
     let comment = b.comment.unwrap_or_default();
     if send_back && comment.trim().is_empty() { return err(StatusCode::BAD_REQUEST, "กรุณาระบุเหตุผลที่ตีกลับ"); }
-    let (ok_role, step) = if status == "review" { (can_review(&u.role), "review") } else if status == "approve" { (can_approve(&u.role), "approve") } else { (false, "") };
-    if !ok_role { return err(StatusCode::FORBIDDEN, "ไม่มีสิทธิ์ในขั้นนี้"); }
-    let schema = load_schema(&client, cur["formCode"].as_str().unwrap_or("")).await.unwrap_or(json!({}));
-    let flow = schema["approval_flow"].as_array().cloned().unwrap_or_default();
-    let mut next = "approved".to_string();
-    if pass {
-        if let Some(i) = flow.iter().position(|s| s["step"].as_str() == Some(step)) {
-            if let Some(n) = flow.get(i + 1).and_then(|s| s["step"].as_str()) {
-                if matches!(n, "review" | "approve") { next = n.to_string(); }
-            }
-        }
-    } else {
-        next = "returned".into();
-    }
+    if status != "approve" || !can_approve(&u.role) { return err(StatusCode::FORBIDDEN, "ไม่มีสิทธิ์ในขั้นนี้"); }
+    let step = "approve";
+    let next = if pass { "approved" } else { "returned" };
     let now = now_iso();
     if client.execute("UPDATE form_records SET status=$2,updated_at=$3 WHERE id=$1", &[&id, &next, &now]).await.is_err() {
         return err(StatusCode::INTERNAL_SERVER_ERROR, "อัปเดตสถานะไม่ได้");
@@ -929,7 +918,7 @@ pub async fn record_amend(State(st): State<S>, Extension(u): Extension<AuthUser>
     if cur["status"].as_str() != Some("approved") { return err(StatusCode::BAD_REQUEST, "ขอแก้ไขได้เฉพาะใบที่อนุมัติแล้ว"); }
     let owner = cur["preparedBy"].as_str() == Some(u.emp_code.as_str());
     if !is_admin(&u.role) && !owner { return err(StatusCode::FORBIDDEN, "เฉพาะผู้จัดทำหรือผู้ดูแล"); }
-    let open = client.query_opt("SELECT id FROM form_records WHERE family_id=$1 AND status IN ('draft','returned','review','approve')", &[&cur["familyId"].as_i64().unwrap_or(0)]).await.ok().flatten();
+    let open = client.query_opt("SELECT id FROM form_records WHERE family_id=$1 AND status IN ('draft','returned','approve')", &[&cur["familyId"].as_i64().unwrap_or(0)]).await.ok().flatten();
     if open.is_some() { return err(StatusCode::BAD_REQUEST, "มีฉบับแก้ไขที่ยังไม่จบอยู่แล้ว"); }
     let now = now_iso();
     let rev_no = cur["revNo"].as_i64().unwrap_or(1) + 1;
@@ -963,17 +952,15 @@ pub async fn pending(State(st): State<S>, Extension(u): Extension<AuthUser>) -> 
     }
 }
 
-/// แบบฟอร์มที่รอผู้ใช้นี้ตรวจสอบ/อนุมัติ (ไม่รวมใบที่ตนจัดทำ ยกเว้น admin)
+/// แบบฟอร์มที่รอผู้ใช้นี้อนุมัติ (ไม่รวมใบที่ตนจัดทำ ยกเว้น admin)
 pub(crate) async fn pending_items(client: &impl deadpool_postgres::GenericClient, u: &AuthUser) -> Result<Vec<Value>, String> {
-    let sql = format!("SELECT {RCOLS} FROM form_records WHERE status IN ('review','approve') ORDER BY updated_at");
+    if !can_approve(&u.role) { return Ok(vec![]); }
+    let sql = format!("SELECT {RCOLS} FROM form_records WHERE status='approve' ORDER BY updated_at");
     let rows = client.query(&sql, &[]).await.map_err(|e| e.to_string())?;
     Ok(rows.iter().filter_map(|r| {
         let item = record_summary(r);
-        let status = item["status"].as_str().unwrap_or("");
         let by = item["preparedBy"].as_str().unwrap_or("");
-        if !is_admin(&u.role) && by == u.emp_code { return None; }
-        let ok = (status == "review" && can_review(&u.role)) || (status == "approve" && can_approve(&u.role));
-        ok.then_some(item)
+        (is_admin(&u.role) || by != u.emp_code).then_some(item)
     }).collect())
 }
 
@@ -1007,7 +994,7 @@ pub async fn form_stats(State(st): State<S>) -> Response {
         let created: String = r.get(1);
         let submitted: String = r.get(2);
         if created.starts_with(&ym) || submitted.starts_with(&ym) { month += 1; }
-        if matches!(status.as_str(), "review" | "approve") {
+        if status == "approve" {
             pending += 1;
             if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(if submitted.is_empty() { &created } else { &submitted }) {
                 if now.signed_duration_since(dt.with_timezone(&chrono::Utc)) > chrono::Duration::days(7) { overdue += 1; }
@@ -1147,7 +1134,7 @@ fn print_payload(cur: &Value, schema: &Value, origin: &str, token: &str) -> Valu
     }
     let status_code = cur["status"].as_str().unwrap_or("");
     let status_th = match status_code {
-        "draft" => "ร่าง", "review" => "รอตรวจสอบ", "approve" => "รออนุมัติ", "approved" => "อนุมัติแล้ว",
+        "draft" => "ร่าง", "approve" => "รออนุมัติ", "approved" => "อนุมัติแล้ว",
         "returned" => "ตีกลับ", "cancelled" => "ยกเลิก", "imported" => "นำเข้าจากเอกสารเดิม", "superseded" => "ถูกแทนที่", _ => status_code,
     };
     let watermark = if status_code == "approved" || status_code == "imported" { "" } else { "ร่าง – ยังไม่อนุมัติ" };
@@ -1427,11 +1414,9 @@ pub async fn print_with_steps(st: &S, id: i64, origin: &str) -> Result<String, S
             "comment": format!("{} {}", s.get::<_, String>(3), s.get::<_, String>(4)).trim().to_string(),
         }));
     }
-    for f in schema["approval_flow"].as_array().cloned().unwrap_or_default() {
-        let label = if f["step"].as_str() == Some("approve") { "ผู้อนุมัติ" } else { "ผู้ตรวจสอบ" };
-        if !approvals.iter().any(|a| a["label"].as_str() == Some(label)) {
-            approvals.push(json!({ "label": label, "name": "", "at": "", "comment": "" }));
-        }
+    // ช่องลงนามที่ยังว่าง — ใบเก่าที่เคยผ่านผู้ตรวจสอบยังแสดงชื่อผู้ตรวจสอบจากประวัติด้านบน
+    if has_approve_step(&schema) && !approvals.iter().any(|a| a["label"].as_str() == Some("ผู้อนุมัติ")) {
+        approvals.push(json!({ "label": "ผู้อนุมัติ", "name": "", "at": "", "comment": "" }));
     }
     payload["approvals"] = Value::Array(approvals);
     let body = payload.to_string();

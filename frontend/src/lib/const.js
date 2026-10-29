@@ -40,8 +40,8 @@ export function matchesQuery(d, q) {
 export function sortByField(rows, key, asc) {
   return rows.slice().sort((a, b) => {
     const x = (a[key] || '') + '', y = (b[key] || '') + ''
-    if (x === y) return 0
-    const dir = x < y ? -1 : 1
+    // เรียงตัวเลขตามค่า — v10.0 ต้องอยู่หลัง v4.0
+    const dir = x.localeCompare(y, 'th', { numeric: true })
     return asc ? dir : -dir
   })
 }

@@ -22,8 +22,8 @@
   onMount(load)
   $: if (refresh) load()
 
-  const isMine = (c) => c.can?.review || c.can?.approve || c.can?.resubmit
-  const isOpen = (c) => ['review', 'approve', 'returned'].includes(c.status)
+  const isMine = (c) => c.can?.approve || c.can?.resubmit
+  const isOpen = (c) => ['approve', 'returned'].includes(c.status)
   const FILTERS = [
     ['mine', 'รอฉันดำเนินการ', isMine],
     ['open', 'กำลังดำเนินการ', isOpen],
@@ -36,7 +36,6 @@
   $: rows = list.filter((c) => fn(c) && matchesQuery({ code: c.docCode, name: `${c.docName || ''} ${c.refNo} ${c.preparedName}` }, q))
 
   function nextStep(c) {
-    if (c.can?.review) return 'รอคุณตรวจสอบ'
     if (c.can?.approve) return 'รอคุณอนุมัติ'
     if (c.can?.resubmit) return 'ถูกตีกลับ — รอคุณแก้ไขและส่งใหม่'
     return ''
@@ -45,7 +44,7 @@
 
 <div class="cat-head">
   <h2 class="cat-title inline-flex items-center gap-2"><Icon name="clipboard-check" size={20} /> คำขอเปลี่ยนแปลงเอกสาร (DCR)</h2>
-  <p class="cat-desc">เอกสารควบคุมแก้ไขได้ผ่านคำขอเท่านั้น: ผู้จัดทำส่งฉบับร่าง → ผู้ตรวจสอบ → ผู้อนุมัติ → มีผลบังคับใช้เป็น Rev. ใหม่ ทุกขั้นลงนามด้วย PIN (ISO 9001:2015 ข้อ 7.5.2–7.5.3)</p>
+  <p class="cat-desc">เอกสารควบคุมแก้ไขได้ผ่านคำขอเท่านั้น: ผู้จัดทำส่งฉบับร่าง → ผู้อนุมัติ → มีผลบังคับใช้เป็น ฉบับใหม่ ทุกขั้นลงนามด้วย PIN (ISO 9001:2015 ข้อ 7.5.2–7.5.3)</p>
 </div>
 
 <div class="subtabs">
@@ -66,7 +65,7 @@
 {:else}
   <div class="sec !p-0 overflow-auto">
     <table>
-      <thead><tr><th>เลขที่</th><th>เอกสาร</th><th>Rev.</th><th>เหตุผล</th><th>ผู้จัดทำ</th><th>อัปเดตล่าสุด</th><th>สถานะ</th></tr></thead>
+      <thead><tr><th>เลขที่</th><th>เอกสาร</th><th>ฉบับ</th><th>เหตุผล</th><th>ผู้จัดทำ</th><th>อัปเดตล่าสุด</th><th>สถานะ</th></tr></thead>
       <tbody>
         {#each rows as c (c.id)}
           <tr class="clickrow" on:click={() => dispatch('open', { code: c.docCode, change: c.id })} title="คลิกเพื่อเปิดคำขอ">

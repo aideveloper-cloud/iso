@@ -109,16 +109,16 @@ fn row_json(r: &tokio_postgres::Row) -> Value {
 }
 
 fn can_flags(u: &AuthUser, r: &Value) -> Value {
-    let reviewer = eform::can_review(&u.role);
+    let approver = eform::can_approve(&u.role);
     let owner = s(r, "ownerCode") == u.emp_code;
     let open = s(r, "status") != "closed";
     let write = u.role != "viewer";
     json!({
-        "edit": open && write && (owner || reviewer || s(r, "createdBy") == u.emp_code),
-        "review": open && write && (owner || reviewer),
-        "par": open && write && (owner || reviewer) && s(r, "actionRef").is_empty(),
-        "close": open && reviewer,
-        "reopen": !open && reviewer,
+        "edit": open && write && (owner || approver || s(r, "createdBy") == u.emp_code),
+        "review": open && write && (owner || approver),
+        "par": open && write && (owner || approver) && s(r, "actionRef").is_empty(),
+        "close": open && approver,
+        "reopen": !open && approver,
     })
 }
 
@@ -244,7 +244,7 @@ pub struct UpdateReq { version: i64, fields: Fields }
 pub async fn update(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<UpdateReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(mut r) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบรายการนี้") };
-    if can_flags(&u, &r)["edit"] != json!(true) { return forbid("แก้ไขได้เฉพาะผู้บันทึก ผู้รับผิดชอบ หรือผู้ตรวจสอบขึ้นไป ขณะยังไม่ปิด"); }
+    if can_flags(&u, &r)["edit"] != json!(true) { return forbid("แก้ไขได้เฉพาะผู้บันทึก ผู้รับผิดชอบ หรือผู้อนุมัติขึ้นไป ขณะยังไม่ปิด"); }
     if b.fields.kind.is_some() { return bad("เปลี่ยนประเภทไม่ได้ — บันทึกรายการใหม่แทน"); }
     let before = r.clone();
     if let Err(x) = apply(&c, &mut r, b.fields).await { return x; }
@@ -271,11 +271,11 @@ pub async fn update(Path(id): Path<i64>, State(st): State<S>, Extension(u): Exte
 #[allow(non_snake_case)]
 pub struct ReviewReq { version: i64, likelihood: i64, impact: i64, effectiveness: String, note: String, nextReview: String }
 
-/// ทบทวน: ประเมินซ้ำ + ประสิทธิผลของการจัดการ + กำหนดทบทวนครั้งถัดไป (ผู้รับผิดชอบหรือผู้ตรวจสอบขึ้นไป)
+/// ทบทวน: ประเมินซ้ำ + ประสิทธิผลของการจัดการ + กำหนดทบทวนครั้งถัดไป (ผู้รับผิดชอบหรือผู้อนุมัติขึ้นไป)
 pub async fn review(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<ReviewReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(r) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบรายการนี้") };
-    if can_flags(&u, &r)["review"] != json!(true) { return forbid("ทบทวนได้เฉพาะผู้รับผิดชอบ หรือผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &r)["review"] != json!(true) { return forbid("ทบทวนได้เฉพาะผู้รับผิดชอบ หรือผู้อนุมัติขึ้นไป"); }
     if !(1..=5).contains(&b.likelihood) || !(1..=5).contains(&b.impact) { return bad("คะแนนต้องอยู่ระหว่าง 1–5"); }
     if !matches!(b.effectiveness.as_str(), "effective" | "not_effective" | "pending") { return bad("ผลประสิทธิผลไม่ถูกต้อง"); }
     let note = clip(&b.note, 3000);
@@ -298,7 +298,7 @@ pub async fn review(Path(id): Path<i64>, State(st): State<S>, Extension(u): Exte
 #[derive(Deserialize)]
 pub struct ActReq { version: i64, action: String, reason: Option<String> }
 
-/// ปิด (ความเสี่ยงหมดไป/ไม่เกี่ยวข้องแล้ว) หรือเปิดใหม่ — ผู้ตรวจสอบขึ้นไป พร้อมเหตุผล
+/// ปิด (ความเสี่ยงหมดไป/ไม่เกี่ยวข้องแล้ว) หรือเปิดใหม่ — ผู้อนุมัติขึ้นไป พร้อมเหตุผล
 pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<ActReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(r) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบรายการนี้") };
@@ -308,7 +308,7 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
     let (status, ev) = match b.action.as_str() {
         "close" if can["close"] == json!(true) => ("closed", "close"),
         "reopen" if can["reopen"] == json!(true) => ("open", "reopen"),
-        "close" | "reopen" => return forbid("เฉพาะผู้ตรวจสอบขึ้นไป"),
+        "close" | "reopen" => return forbid("เฉพาะผู้อนุมัติขึ้นไป"),
         _ => return bad("การดำเนินการไม่ถูกต้อง"),
     };
     let n = c.execute("UPDATE risks SET version=version+1,status=$3,close_reason=$4,updated_at=$5 WHERE id=$1 AND version=$2",
@@ -323,7 +323,7 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
 pub async fn raise_par(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(r) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบรายการนี้") };
-    if can_flags(&u, &r)["par"] != json!(true) { return forbid("เปิด PAR ได้เฉพาะผู้รับผิดชอบหรือผู้ตรวจสอบขึ้นไป และรายการที่ยังไม่มีใบผูกไว้"); }
+    if can_flags(&u, &r)["par"] != json!(true) { return forbid("เปิด PAR ได้เฉพาะผู้รับผิดชอบหรือผู้อนุมัติขึ้นไป และรายการที่ยังไม่มีใบผูกไว้"); }
     let f = capa::Fields {
         kind: Some("PAR".into()),
         title: Some(format!("มาตรการจัดการ{}: {}", if s(&r, "kind") == "opportunity" { "โอกาส" } else { "ความเสี่ยง" }, s(&r, "title"))),

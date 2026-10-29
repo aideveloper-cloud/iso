@@ -310,7 +310,7 @@ async fn freeze_originals(st: &S) {
             fs::read(st.storage.join(&name)).ok().filter(|b| sha256_hex(b) == sha).map(|_| v.get::<_, i64>(0))
         });
         if let Some(v) = overwritten_by {
-            let msg = format!("{note} · ⚠ ไฟล์ต้นฉบับในแฟ้มถูกเขียนทับด้วย v{v} ก่อนระบบแช่แข็งต้นฉบับ — กู้ได้จากประวัติเวอร์ชันของ OneDrive");
+            let msg = format!("{note} · ⚠ ไฟล์ต้นฉบับในแฟ้มถูกเขียนทับด้วย #{v} ก่อนระบบแช่แข็งต้นฉบับ — กู้ได้จากประวัติเวอร์ชันของ OneDrive");
             let _ = c.execute("UPDATE versions SET stored_name=$2, note=$3 WHERE doc_code=$1 AND version=1", &[&code, &LOST, &msg]).await;
             lost += 1;
         } else {
@@ -577,7 +577,7 @@ async fn versions(Path(code): Path<String>, State(st): State<S>) -> Response {
         "versions": list_versions(&st, &code).await,
     });
     doccontrol::control_map(&st).await.apply(&code, &mut o);
-    o["nextRev"] = json!(doccontrol::bump_rev(o["rev"].as_str().unwrap_or("")));
+    o["nextRev"] = json!(doccontrol::next_rev(&code, o["rev"].as_str().unwrap_or("")));
     Json(o).into_response()
 }
 
@@ -916,7 +916,12 @@ async fn main() {
     let docs_root = base.join(std::env::var("DOCS_ROOT").unwrap_or_else(|_| "../data".into()));
     let storage = docs_root.join("storage");
     fs::create_dir_all(&storage).ok();
-    let manifest: Vec<Value> = serde_json::from_str(&fs::read_to_string(docs_root.join("manifest.json")).expect("manifest.json")).expect("parse manifest");
+    let mut manifest: Vec<Value> = serde_json::from_str(&fs::read_to_string(docs_root.join("manifest.json")).expect("manifest.json")).expect("parse manifest");
+    // เอกสารที่ไม่ใช่แบบฟอร์ม FM ใช้เลขฉบับแบบ v — Rev. ใน manifest เดิมแปลงตอนโหลด (Rev.03 → v4.0)
+    for d in manifest.iter_mut() {
+        let code = d["code"].as_str().unwrap_or("").to_string();
+        if let Some(rev) = d["rev"].as_str() { d["rev"] = json!(revscan::to_doc_rev(&code, rev)); }
+    }
     let overview_json: Value = fs::read_to_string(docs_root.join("overview.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!([]));
     let clauses: Value = fs::read_to_string(docs_root.join("clauses.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({ "clauses": [] }));
     let by_code: HashMap<String, Value> = manifest.iter().filter_map(|d| d["code"].as_str().map(|c| (c.to_string(), d.clone()))).collect();

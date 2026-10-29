@@ -58,7 +58,6 @@
   }
 
   const DECIDE = {
-    review_pass: { title: 'ผู้ตรวจสอบ: ผ่าน', label: 'ผ่าน — ส่งต่อผู้อนุมัติ', comment: 'ความเห็นผู้ตรวจสอบ' },
     approve_pass: { title: 'ผู้อนุมัติ: อนุมัติให้มีผลบังคับใช้', label: 'อนุมัติ — มีผลบังคับใช้', comment: 'ความเห็นผู้อนุมัติ' },
     return: { title: 'ตีกลับให้ผู้จัดทำแก้ไข', label: 'ตีกลับ', comment: 'เหตุผลที่ตีกลับ', required: true, danger: true },
     cancel: { title: 'ยกเลิกคำขอเปลี่ยนแปลง', label: 'ยกเลิกคำขอ', comment: 'เหตุผลการยกเลิกคำขอ', required: true, danger: true, noPin: true },
@@ -138,7 +137,7 @@
       {#if np.pages}<div><b>หน้าที่แก้ไข:</b> {np.pages}</div>{/if}
       <div><b>ผู้จัดทำ:</b> {change.preparedName}{#if change.preparedPosition} · {change.preparedPosition}{/if} · {fmtWhen(change.createdAt)}</div>
       <div><b>ไฟล์:</b> {change.filename} <span class="mut">· SHA-256 {shortSha(change.sha256)}</span></div>
-      {#if change.status === 'effective'}<div><b>มีผลเป็นเวอร์ชัน:</b> v{change.version}</div>{/if}
+      {#if change.status === 'effective'}<div><b>มีผลเป็นเวอร์ชัน:</b> #{change.version}</div>{/if}
     </div>
   </div>
 
@@ -148,10 +147,6 @@
   {#if err}<div class="merr">{err}</div>{/if}
 
   <div class="dcr-actions">
-    {#if can.review}
-      <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => (deciding = 'review_pass')}><Icon name="circle-check" size={14} /> ตรวจสอบผ่าน</button>
-      <button class="mbtn danger" on:click={() => (deciding = 'return')}>ตีกลับ</button>
-    {/if}
     {#if can.approve}
       <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => (deciding = 'approve_pass')}><Icon name="circle-check" size={14} /> อนุมัติให้มีผลบังคับใช้</button>
       <button class="mbtn danger" on:click={() => (deciding = 'return')}>ตีกลับ</button>
@@ -163,7 +158,7 @@
         </button>
       {/if}
       {#if editableDraft && !canWebOffice}
-        <EditActions {editing} {dirty} updateLabel="ส่งใหม่เพื่อตรวจสอบ" editLabel="แก้ไขฉบับร่างบนเว็บ" on:cancel={() => { editing = false; dirty = false; loadedKey = ''; loadContent(change.id, change.sha256) }} on:start={() => { editing = true; dirty = false }} on:update={startResubmitFromEdit} />
+        <EditActions {editing} {dirty} updateLabel="ส่งใหม่เพื่ออนุมัติ" editLabel="แก้ไขฉบับร่างบนเว็บ" on:cancel={() => { editing = false; dirty = false; loadedKey = ''; loadContent(change.id, change.sha256) }} on:start={() => { editing = true; dirty = false }} on:update={startResubmitFromEdit} />
       {/if}
       <button class="mbtn inline-flex items-center gap-1.5" on:click={() => uploadInput.click()}><Icon name="cloud-upload" size={14} /> แนบไฟล์ใหม่</button>
       <input bind:this={uploadInput} type="file" class="hidden" on:change={onPickFile} />
@@ -174,16 +169,16 @@
     {#if can.cancel && !editing}
       <button class="mbtn gh" on:click={() => (deciding = 'cancel')}>ยกเลิกคำขอ</button>
     {/if}
-    {#if !can.review && !can.approve && (change.status === 'review' || change.status === 'approve')}
+    {#if !can.approve && change.status === 'approve'}
       <span class="mnote">
-        {change.preparedBy === me?.empCode ? 'รอผู้อื่นตรวจสอบ/อนุมัติ — ผู้จัดทำลงนามขั้นนี้เองไม่ได้' : `รอ${change.status === 'review' ? 'ผู้ตรวจสอบ' : 'ผู้อนุมัติ'}ลงนาม`}
+        {change.preparedBy === me?.empCode ? 'รอผู้อื่นอนุมัติ — ผู้จัดทำลงนามขั้นนี้เองไม่ได้' : 'รอผู้อนุมัติลงนาม'}
       </span>
     {/if}
   </div>
 
-  {#if aiEnabled && ['review', 'approve', 'returned'].includes(change.status)}
-    <details class="dcr-ai" open={can.review || can.approve}>
-      <summary class="dcr-sub cursor-pointer">ผู้ช่วย AI สำหรับผู้ตรวจ{#if aiAccepted.length} <span class="mut">— ทำตาม {aiAccepted.length} ข้อ (ใส่ในความเห็นตอนลงนาม)</span>{/if}</summary>
+  {#if aiEnabled && ['approve', 'returned'].includes(change.status)}
+    <details class="dcr-ai" open={can.approve}>
+      <summary class="dcr-sub cursor-pointer">ผู้ช่วย AI สำหรับผู้อนุมัติ{#if aiAccepted.length} <span class="mut">— ทำตาม {aiAccepted.length} ข้อ (ใส่ในความเห็นตอนลงนาม)</span>{/if}</summary>
       {#key change.id}<AiPanel kind="dcr" subject={change.id} {me} bind:accepted={aiAccepted} />{/key}
     </details>
   {/if}
@@ -206,8 +201,8 @@
 
   <h4 class="dcr-sub">ฉบับร่าง {change.newRev}{#if change.status !== 'effective'} <span class="mut">— ยังไม่มีผลบังคับใช้</span>{/if}</h4>
   {#if gEdit && canWebOffice}
-    <OfficeEdit code={doc.code} changeId={change.id} submitLabel="ส่งใหม่เพื่อตรวจสอบ"
-      on:submit={(e) => (resubmit = { editId: e.detail.editId, label: 'ฉบับที่แก้ในตัวแก้ไขเอกสาร → ส่งใหม่เพื่อตรวจสอบ' })}
+    <OfficeEdit code={doc.code} changeId={change.id} submitLabel="ส่งใหม่เพื่ออนุมัติ"
+      on:submit={(e) => (resubmit = { editId: e.detail.editId, label: 'ฉบับที่แก้ในตัวแก้ไขเอกสาร → ส่งใหม่เพื่ออนุมัติ' })}
       on:closed={() => (gEdit = false)} />
   {:else if loadingContent}
     <div class="loadwrap"><span class="spin"></span></div>
@@ -223,7 +218,7 @@
         embedUrl={changeFileUrl(change.id)}
         downloadUrl={changeFileUrl(change.id, true)}
         {editing}
-        saveLabel="ส่งใหม่เพื่อตรวจสอบ"
+        saveLabel="ส่งใหม่เพื่ออนุมัติ"
         bind:dirty
       />
     </div>
@@ -250,7 +245,7 @@
   <SignDialog
     title="{doc.code} · {doc.name}"
     summary={resubmit.label}
-    confirmLabel="ส่งใหม่เพื่อตรวจสอบ"
+    confirmLabel="ส่งใหม่เพื่ออนุมัติ"
     {me}
     withPin
     change={{ fromRev: change.fromRev, newRev: change.newRev }}

@@ -128,21 +128,21 @@ fn cal_json(r: &tokio_postgres::Row) -> Value {
 }
 
 fn can_flags(u: &AuthUser, e: &Value) -> Value {
-    let reviewer = eform::can_review(&u.role);
+    let approver = eform::can_approve(&u.role);
     let owner = s(e, "ownerCode") == u.emp_code;
     let write = u.role != "viewer";
     let active = s(e, "status") != "retired";
-    let work = write && active && (owner || reviewer);
+    let work = write && active && (owner || approver);
     json!({
-        "edit": write && active && (owner || reviewer || s(e, "createdBy") == u.emp_code),
+        "edit": write && active && (owner || approver || s(e, "createdBy") == u.emp_code),
         "calibrate": work,
         "impact": work,
         "car": work,
         "suspend": work && s(e, "status") == "in_use",
         // กลับมาใช้งานได้เมื่อผลสอบเทียบล่าสุดผ่านและยังไม่เลยกำหนด
         "resume": work && s(e, "status") == "out_of_service" && s(e, "lastResult") == "pass" && s(e, "dueState") != "overdue" && i(e, "pendingImpact") == 0,
-        "retire": write && active && reviewer,
-        "reinstate": write && !active && reviewer,
+        "retire": write && active && approver,
+        "reinstate": write && !active && approver,
     })
 }
 
@@ -305,11 +305,11 @@ pub async fn create(State(st): State<S>, Extension(u): Extension<AuthUser>, Json
 #[derive(Deserialize)]
 pub struct UpdateReq { version: i64, fields: Fields }
 
-/// แก้ไขทะเบียน — ผู้บันทึก ผู้รับผิดชอบ หรือผู้ตรวจสอบขึ้นไป (กำหนดถัดไปปรับได้ เช่น ขยายรอบตามผลย้อนหลัง)
+/// แก้ไขทะเบียน — ผู้บันทึก ผู้รับผิดชอบ หรือผู้อนุมัติขึ้นไป (กำหนดถัดไปปรับได้ เช่น ขยายรอบตามผลย้อนหลัง)
 pub async fn update(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<UpdateReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(mut e) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบเครื่องมือนี้") };
-    if can_flags(&u, &e)["edit"] != json!(true) { return forbid("แก้ไขได้เฉพาะผู้บันทึก ผู้รับผิดชอบ หรือผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &e)["edit"] != json!(true) { return forbid("แก้ไขได้เฉพาะผู้บันทึก ผู้รับผิดชอบ หรือผู้อนุมัติขึ้นไป"); }
     let before = e.clone();
     if let Err(x) = apply(&c, &mut e, b.fields).await { return x; }
     let g = gaps(&e);
@@ -343,7 +343,7 @@ pub struct CalReq {
 pub async fn calibrate(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<CalReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(e) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบเครื่องมือนี้") };
-    if can_flags(&u, &e)["calibrate"] != json!(true) { return forbid("บันทึกผลได้เฉพาะผู้รับผิดชอบเครื่องมือ หรือผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &e)["calibrate"] != json!(true) { return forbid("บันทึกผลได้เฉพาะผู้รับผิดชอบเครื่องมือ หรือผู้อนุมัติขึ้นไป"); }
     let today = capa::today();
     let date = clip(&b.calDate, 10);
     if parse(&date).is_none() || date > today { return bad("วันที่สอบเทียบไม่ถูกต้อง (ต้องไม่เกินวันนี้)"); }
@@ -403,7 +403,7 @@ pub struct ImpactReq { impactResult: String, impact: String, impactAction: Optio
 pub async fn impact(Path((id, cid)): Path<(i64, i64)>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<ImpactReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(e) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบเครื่องมือนี้") };
-    if can_flags(&u, &e)["impact"] != json!(true) { return forbid("ประเมินผลกระทบได้เฉพาะผู้รับผิดชอบเครื่องมือ หรือผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &e)["impact"] != json!(true) { return forbid("ประเมินผลกระทบได้เฉพาะผู้รับผิดชอบเครื่องมือ หรือผู้อนุมัติขึ้นไป"); }
     let Some(k) = c.query_opt(&format!("SELECT {KCOLS} FROM calibrations WHERE id=$1 AND equipment_id=$2"), &[&cid, &id]).await.ok().flatten().map(|r| cal_json(&r))
         else { return err(StatusCode::NOT_FOUND, "ไม่พบผลสอบเทียบนี้") };
     if k["result"] != json!("fail") { return bad("ประเมินผลกระทบเฉพาะผลสอบเทียบที่ไม่ผ่าน"); }
@@ -432,7 +432,7 @@ pub async fn impact(Path((id, cid)): Path<(i64, i64)>, State(st): State<S>, Exte
 pub async fn raise_car(Path((id, cid)): Path<(i64, i64)>, State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(e) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบเครื่องมือนี้") };
-    if can_flags(&u, &e)["car"] != json!(true) { return forbid("เปิด CAR ได้เฉพาะผู้รับผิดชอบเครื่องมือ หรือผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &e)["car"] != json!(true) { return forbid("เปิด CAR ได้เฉพาะผู้รับผิดชอบเครื่องมือ หรือผู้อนุมัติขึ้นไป"); }
     let Some(k) = c.query_opt(&format!("SELECT {KCOLS} FROM calibrations WHERE id=$1 AND equipment_id=$2"), &[&cid, &id]).await.ok().flatten().map(|r| cal_json(&r))
         else { return err(StatusCode::NOT_FOUND, "ไม่พบผลสอบเทียบนี้") };
     if k["result"] != json!("fail") { return bad("เปิด CAR ได้เฉพาะผลสอบเทียบที่ไม่ผ่าน"); }
@@ -467,7 +467,7 @@ pub async fn raise_car(Path((id, cid)): Path<(i64, i64)>, State(st): State<S>, E
 #[derive(Deserialize)]
 pub struct ActReq { version: i64, action: String, reason: Option<String> }
 
-/// หยุดใช้งาน/กลับมาใช้งาน (ผู้รับผิดชอบหรือผู้ตรวจสอบ) · ยกเลิกใช้งาน/นำกลับเข้าทะเบียน (ผู้ตรวจสอบขึ้นไป) — พร้อมเหตุผล
+/// หยุดใช้งาน/กลับมาใช้งาน (ผู้รับผิดชอบหรือผู้อนุมัติ) · ยกเลิกใช้งาน/นำกลับเข้าทะเบียน (ผู้อนุมัติขึ้นไป) — พร้อมเหตุผล
 pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<ActReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(e) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบเครื่องมือนี้") };
@@ -486,8 +486,8 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
     if !allowed {
         return forbid(match b.action.as_str() {
             "resume" => "กลับมาใช้งานได้เมื่อผลสอบเทียบล่าสุดผ่าน ยังไม่เลยกำหนด และประเมินผลกระทบครบแล้ว",
-            "retire" | "reinstate" => "เฉพาะผู้ตรวจสอบขึ้นไป",
-            _ => "เฉพาะผู้รับผิดชอบเครื่องมือ หรือผู้ตรวจสอบขึ้นไป",
+            "retire" | "reinstate" => "เฉพาะผู้อนุมัติขึ้นไป",
+            _ => "เฉพาะผู้รับผิดชอบเครื่องมือ หรือผู้อนุมัติขึ้นไป",
         });
     }
     let n = c.execute("UPDATE equipment SET version=version+1,status=$3,status_reason=$4,updated_at=$5 WHERE id=$1 AND version=$2",

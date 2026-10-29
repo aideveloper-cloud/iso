@@ -61,7 +61,7 @@
     ] },
     { group: 'ติดตามงาน', items: [
       ['dcr', 'clipboard-check', 'คำขอเปลี่ยนแปลงเอกสาร'],
-      ['rev', 'shield-check', 'ควบคุม Rev. / สำเนา'],
+      ['rev', 'shield-check', 'ควบคุมฉบับ / สำเนา'],
       ['ack', 'circle-check', 'การรับทราบเอกสาร'],
       ['tm', 'user', 'Training matrix'],
       ['forms', 'clipboard-list', 'บันทึกแบบฟอร์ม'],
@@ -78,7 +78,7 @@
 
   // เมนูผู้ดูแลระบบแสดงเฉพาะ admin (server ตรวจสิทธิ์ซ้ำทุกคำขอ)
   $: adminItems = [
-    ...(['reviewer', 'approver', 'admin'].includes(me?.role) ? [['trail', 'list-checks', 'บันทึกการใช้งาน']] : []),
+    ...(['approver', 'admin'].includes(me?.role) ? [['trail', 'list-checks', 'บันทึกการใช้งาน']] : []),
     ...(me?.role === 'admin' ? [['users', 'user', 'ผู้ใช้และสิทธิ์']] : []),
   ]
   $: nav = adminItems.length ? [...NAV, { group: 'ผู้ดูแลระบบ / ตรวจสอบ', items: adminItems }] : NAV

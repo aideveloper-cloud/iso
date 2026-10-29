@@ -28,7 +28,7 @@
     loadRuns()
   }
 
-  $: canSave = ['reviewer', 'approver', 'admin'].includes(me?.role)
+  $: canSave = ['approver', 'admin'].includes(me?.role)
   $: controls = [...(r?.controls || [])].sort(byStatus)
   $: attention = controls.filter((c) => c.status !== 'pass')
   $: counts = {

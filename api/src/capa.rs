@@ -1,7 +1,7 @@
 // CAR / DAR / PAR — การแก้ไขและป้องกันครบวงจร (ISO 9001:2015 ข้อ 10.2, 6.1)
 //   เปิด → กำลังดำเนินการ → รอทวนสอบ → ปิด (หรือยกเลิกพร้อมเหตุผล)
 //   ต้องมี: การแก้ไขเฉพาะหน้า (containment) · วิเคราะห์สาเหตุ (root cause + วิธีวิเคราะห์) · การแก้ไขป้องกัน
-//   ปิดได้เมื่อผู้ตรวจสอบที่ไม่ใช่ผู้รับผิดชอบทวนสอบว่า "มีประสิทธิผล" และลงนามด้วย PIN
+//   ปิดได้เมื่อผู้อนุมัติที่ไม่ใช่ผู้รับผิดชอบทวนสอบว่า "มีประสิทธิผล" และลงนามด้วย PIN
 //   ผู้เปิดใบ/ผู้รับผิดชอบเป็นบัญชีพนักงานจริง · ทุกขั้นเก็บประวัติ (action_steps) และ audit_log
 use crate::eform::{self, AuthUser};
 use crate::{err, now_iso, S};
@@ -78,15 +78,15 @@ fn can_flags(u: &AuthUser, a: &Value) -> Value {
     let me = u.emp_code.as_str();
     let assignee = s(a, "assigneeCode") == me;
     let raiser = s(a, "raisedCode") == me;
-    let reviewer = eform::can_review(&u.role);
+    let approver = eform::can_approve(&u.role);
     let write = u.role != "viewer";
-    let work = write && (assignee || raiser || reviewer);
+    let work = write && (assignee || raiser || approver);
     json!({
         "edit": OPEN[..2].contains(&st.as_str()) && work,
-        "start": st == "open" && write && (assignee || reviewer),
-        "submit": st == "in_progress" && write && (assignee || reviewer),
-        "verify": st == "verify" && reviewer && (eform::is_admin(&u.role) || !assignee),
-        "cancel": OPEN.contains(&st.as_str()) && reviewer,
+        "start": st == "open" && write && (assignee || approver),
+        "submit": st == "in_progress" && write && (assignee || approver),
+        "verify": st == "verify" && approver && (eform::is_admin(&u.role) || !assignee),
+        "cancel": OPEN.contains(&st.as_str()) && approver,
     })
 }
 
@@ -232,12 +232,12 @@ pub(crate) async fn open_action(st: &S, c: &impl deadpool_postgres::GenericClien
 #[derive(Deserialize)]
 pub struct UpdateReq { version: i64, fields: Fields }
 
-/// แก้ไขรายละเอียด (สถานะเปิด/กำลังดำเนินการ) — ผู้เปิดใบ ผู้รับผิดชอบ หรือผู้ตรวจสอบขึ้นไป
+/// แก้ไขรายละเอียด (สถานะเปิด/กำลังดำเนินการ) — ผู้เปิดใบ ผู้รับผิดชอบ หรือผู้อนุมัติขึ้นไป
 pub async fn update(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<UpdateReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(mut a) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบใบนี้") };
     if can_flags(&u, &a)["edit"] != json!(true) {
-        return forbid(if OPEN[..2].contains(&s(&a, "status").as_str()) { "แก้ไขได้เฉพาะผู้เปิดใบ ผู้รับผิดชอบ หรือผู้ตรวจสอบขึ้นไป" } else { "ใบที่ส่งทวนสอบ/ปิด/ยกเลิกแล้วแก้รายละเอียดไม่ได้" });
+        return forbid(if OPEN[..2].contains(&s(&a, "status").as_str()) { "แก้ไขได้เฉพาะผู้เปิดใบ ผู้รับผิดชอบ หรือผู้อนุมัติขึ้นไป" } else { "ใบที่ส่งทวนสอบ/ปิด/ยกเลิกแล้วแก้รายละเอียดไม่ได้" });
     }
     if b.fields.kind.is_some() { return bad("เปลี่ยนประเภทใบไม่ได้"); }
     let before = a.clone();
@@ -266,13 +266,13 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
     let event;
     match b.action.as_str() {
         "start" => {
-            if can["start"] != json!(true) { return forbid("เริ่มดำเนินการได้เฉพาะผู้รับผิดชอบหรือผู้ตรวจสอบขึ้นไป"); }
+            if can["start"] != json!(true) { return forbid("เริ่มดำเนินการได้เฉพาะผู้รับผิดชอบหรือผู้อนุมัติขึ้นไป"); }
             if s(&a, "assigneeCode").is_empty() || s(&a, "dueDate").is_empty() { return bad("ต้องกำหนดผู้รับผิดชอบและวันแล้วเสร็จก่อนเริ่ม"); }
             a["status"] = json!("in_progress");
             event = "start";
         }
         "submit" => {
-            if can["submit"] != json!(true) { return forbid("ส่งทวนสอบได้เฉพาะผู้รับผิดชอบหรือผู้ตรวจสอบขึ้นไป"); }
+            if can["submit"] != json!(true) { return forbid("ส่งทวนสอบได้เฉพาะผู้รับผิดชอบหรือผู้อนุมัติขึ้นไป"); }
             let gaps = submit_gaps(&a);
             if !gaps.is_empty() { return bad(&format!("ยังขาด: {}", gaps.join(", "))); }
             if let Err(r) = eform::verify_pin(&st, &c, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
@@ -282,7 +282,7 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
         }
         "verify" => {
             if can["verify"] != json!(true) {
-                return forbid(if s(&a, "assigneeCode") == u.emp_code { "ผู้รับผิดชอบทวนสอบประสิทธิผลงานของตนเองไม่ได้" } else { "ทวนสอบได้เฉพาะผู้ตรวจสอบขึ้นไป เมื่อใบอยู่ในสถานะรอทวนสอบ" });
+                return forbid(if s(&a, "assigneeCode") == u.emp_code { "ผู้รับผิดชอบทวนสอบประสิทธิผลงานของตนเองไม่ได้" } else { "ทวนสอบได้เฉพาะผู้อนุมัติขึ้นไป เมื่อใบอยู่ในสถานะรอทวนสอบ" });
             }
             if comment.is_empty() { return bad("กรุณาบันทึกหลักฐาน/ผลการทวนสอบประสิทธิผล"); }
             let Some(effective) = b.effective else { return bad("กรุณาระบุผลการทวนสอบ"); };
@@ -305,7 +305,7 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
             }
         }
         "cancel" => {
-            if can["cancel"] != json!(true) { return forbid("ยกเลิกได้เฉพาะผู้ตรวจสอบขึ้นไป ขณะใบยังไม่ปิด"); }
+            if can["cancel"] != json!(true) { return forbid("ยกเลิกได้เฉพาะผู้อนุมัติขึ้นไป ขณะใบยังไม่ปิด"); }
             if comment.is_empty() { return bad("กรุณาระบุเหตุผลการยกเลิก"); }
             a["status"] = json!("cancelled");
             a["cancelReason"] = json!(comment);

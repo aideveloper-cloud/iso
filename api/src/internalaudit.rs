@@ -118,7 +118,7 @@ fn can_flags(u: &AuthUser, a: &Value, its: &[Value], car_open: usize) -> Value {
     // บัญชีอ่านอย่างเดียวไม่นับเป็นทีมผู้ตรวจแม้ถูกใส่ชื่อไว้
     let on_team = u.role != "viewer" && team_codes(a).contains(&u.emp_code);
     let lead = s(a, "leadCode") == u.emp_code;
-    let planner = eform::can_review(&u.role);
+    let planner = eform::can_approve(&u.role);
     let pending = its.iter().filter(|i| i["result"] == json!("pending")).count();
     let nc_without_car = its.iter().filter(|i| matches!(i["result"].as_str(), Some("minor" | "major")) && i["carId"].as_i64().unwrap_or(0) == 0).count();
     json!({
@@ -229,7 +229,7 @@ pub async fn list(State(st): State<S>, Extension(u): Extension<AuthUser>, Query(
         .map(|rows| rows.iter().map(|r| json!({ "code": r.get::<_, String>(0), "name": r.get::<_, String>(1), "dept": r.get::<_, String>(2), "position": r.get::<_, String>(3) })).collect::<Vec<_>>())
         .unwrap_or_default();
     let years: Vec<i64> = c.query("SELECT DISTINCT year_be FROM ia_audits ORDER BY 1 DESC", &[]).await.map(|r| r.iter().map(|x| x.get(0)).collect()).unwrap_or_default();
-    Json(json!({ "year": year, "years": years, "audits": audits, "coverage": coverage, "auditors": auditors, "canPlan": eform::can_review(&u.role) })).into_response()
+    Json(json!({ "year": year, "years": years, "audits": audits, "coverage": coverage, "auditors": auditors, "canPlan": eform::can_approve(&u.role) })).into_response()
 }
 
 pub async fn get(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response { detail_resp(&st, &u, id).await }
@@ -273,9 +273,9 @@ async fn apply_plan(st: &S, c: &impl deadpool_postgres::GenericClient, a: &mut V
     Ok(())
 }
 
-/// วางแผนการตรวจ (ผู้ตรวจสอบขึ้นไป — เช่น QMR)
+/// วางแผนการตรวจ (ผู้อนุมัติขึ้นไป — เช่น QMR)
 pub async fn create(State(st): State<S>, Extension(u): Extension<AuthUser>, Json(f): Json<PlanFields>) -> Response {
-    if !eform::can_review(&u.role) { return forbid("วางแผนการตรวจได้เฉพาะผู้ตรวจสอบ ผู้อนุมัติ หรือผู้ดูแลระบบ"); }
+    if !eform::can_approve(&u.role) { return forbid("วางแผนการตรวจได้เฉพาะผู้อนุมัติ หรือผู้ดูแลระบบ"); }
     if f.title.as_deref().map(|t| t.trim().is_empty()).unwrap_or(true) { return bad("ต้องระบุชื่อการตรวจ"); }
     if f.clauses.as_ref().map(|c| c.is_empty()).unwrap_or(true) { return bad("ต้องเลือกข้อกำหนดที่จะตรวจอย่างน้อย 1 ข้อ"); }
     if f.leadCode.as_deref().map(|t| t.trim().is_empty()).unwrap_or(true) { return bad("ต้องกำหนดหัวหน้าผู้ตรวจ"); }
@@ -305,7 +305,7 @@ pub async fn update(Path(id): Path<i64>, State(st): State<S>, Extension(u): Exte
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(mut a) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบการตรวจ") };
     if a["status"] != json!("planned") { return bad("แก้แผนได้เฉพาะก่อนเริ่มตรวจ"); }
-    if !eform::can_review(&u.role) { return forbid("แก้แผนได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if !eform::can_approve(&u.role) { return forbid("แก้แผนได้เฉพาะผู้อนุมัติขึ้นไป"); }
     if a["version"].as_i64() != Some(b.version) { return stale(); }
     if let Err(r) = apply_plan(&st, &c, &mut a, b.fields).await { return r; }
     let n = c.execute(
@@ -334,7 +334,7 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
     let ref_no = s(&a, "refNo");
     let (set, params): (&str, Vec<String>) = match b.action.as_str() {
         "start" => {
-            if can["start"] != json!(true) { return forbid("เริ่มตรวจได้เฉพาะทีมผู้ตรวจหรือผู้ตรวจสอบขึ้นไป"); }
+            if can["start"] != json!(true) { return forbid("เริ่มตรวจได้เฉพาะทีมผู้ตรวจหรือผู้อนุมัติขึ้นไป"); }
             // สร้าง checklist ครั้งแรกจากแผนผังข้อกำหนด
             if its.is_empty() {
                 for (i, (cl, q, refs)) in default_items(&st, &arr(&a["clauses"]), &arr(&a["depts"])).into_iter().enumerate() {
@@ -362,7 +362,7 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
             ("status='closed', closed_by=$3, closed_at=$4", vec![u.name.clone(), now.clone()])
         }
         "cancel" => {
-            if can["cancel"] != json!(true) { return forbid("ยกเลิกได้เฉพาะผู้ตรวจสอบขึ้นไป ก่อนลงนามรายงาน"); }
+            if can["cancel"] != json!(true) { return forbid("ยกเลิกได้เฉพาะผู้อนุมัติขึ้นไป ก่อนลงนามรายงาน"); }
             if comment.is_empty() { return bad("กรุณาระบุเหตุผลการยกเลิก"); }
             ("status='cancelled', cancel_reason=$3", vec![comment.clone()])
         }

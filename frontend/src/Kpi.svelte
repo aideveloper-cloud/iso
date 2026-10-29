@@ -1,6 +1,6 @@
 <script>
   // วัตถุประสงค์คุณภาพและตัวชี้วัด (ISO 9001:2015 ข้อ 6.2, 9.1)
-  //   ตั้งเป้า (ผู้ตรวจสอบขึ้นไป) → ผู้รับผิดชอบบันทึกผลรายงวด → ไม่ถึงเป้าเปิด CAR → ป้อนการทบทวนฝ่ายบริหารอัตโนมัติ
+  //   ตั้งเป้า (ผู้อนุมัติขึ้นไป) → ผู้รับผิดชอบบันทึกผลรายงวด → ไม่ถึงเป้าเปิด CAR → ป้อนการทบทวนฝ่ายบริหารอัตโนมัติ
   import { onMount, createEventDispatcher } from 'svelte'
   import { api } from './lib/api.js'
   import { DEPTS, DEPTNAME } from './lib/const.js'
@@ -187,7 +187,7 @@
   <div class="empty-state"><Icon name="target" size={38} stroke={1.5} />
     <p>{objectives.length ? 'ไม่มีตัวชี้วัดในหมวดนี้' : 'ยังไม่มีวัตถุประสงค์คุณภาพในระบบ'}</p>
     {#if !objectives.length && canCreate}<button class="mbtn accent" on:click={openCreate}>เพิ่มวัตถุประสงค์แรก</button>{/if}
-    {#if !objectives.length && !canCreate}<p class="mut text-[12.5px]">ผู้ตรวจสอบ/ผู้อนุมัติ (QMR) เป็นผู้กำหนดวัตถุประสงค์คุณภาพ</p>{/if}
+    {#if !objectives.length && !canCreate}<p class="mut text-[12.5px]">ผู้อนุมัติ (QMR) เป็นผู้กำหนดวัตถุประสงค์คุณภาพ</p>{/if}
   </div>
 {:else}
   <div class="overflow-x-auto">

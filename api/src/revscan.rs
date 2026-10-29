@@ -6,7 +6,7 @@
 use std::io::{Cursor, Read};
 
 /// เปลี่ยนเมื่อแก้กติกาการอ่าน — ผลที่แคชไว้ของรุ่นเก่าจะถูกอ่านใหม่
-pub const SCAN_VERSION: &str = "rs5";
+pub const SCAN_VERSION: &str = "rs6";
 
 #[derive(Default)]
 pub struct Found {
@@ -309,7 +309,8 @@ fn digits_after(cs: &[char], mut i: usize) -> Option<(u32, usize)> {
     if i == start { None } else { Some((n, i)) }
 }
 
-/// ตำแหน่งของเลข Rev. ทั้งหมด: (ตัวเลข, ตำแหน่งเริ่มคำ, ตำแหน่งจบตัวเลข) — นับเป็นตัวอักษร (char)
+/// ตำแหน่งของเลขฉบับทั้งหมด: (ลำดับฉบับ, ตำแหน่งเริ่มคำ, ตำแหน่งจบตัวเลข) — นับเป็นตัวอักษร (char)
+/// ลำดับฉบับเทียบกันได้ทั้งสองแบบ: Rev.N = N (แบบฟอร์ม FM) · vM.x = M-1 (เอกสารอื่น — v1.0 คือ Rev.00 เดิม)
 fn rev_spans(text: &str) -> Vec<(u32, usize, usize)> {
     let cs: Vec<char> = text.chars().collect();
     let low: Vec<char> = cs.iter().map(|c| c.to_ascii_lowercase()).collect();
@@ -323,6 +324,26 @@ fn rev_spans(text: &str) -> Vec<(u32, usize, usize)> {
             if low[j..].starts_with(&['i', 's', 'i', 'o', 'n']) { j += 5; }
             if j >= cs.len() || !low[j].is_ascii_alphabetic() {
                 if let Some((n, end)) = digits_after(&cs, j) { out.push((n, i, end)); i = end; continue; }
+            }
+        }
+        // v4.0 / v.4 / ver 4 / version 4 — ต้องไม่ติดตัวอักษรหรือตัวเลขข้างหน้า (220V, TV1) และ v เดี่ยวต้องตามด้วยเลขทันที
+        if low[i] == 'v' && (i == 0 || !low[i - 1].is_ascii_alphanumeric()) {
+            let mut j = i + 1;
+            let word = if low[j..].starts_with(&['e', 'r', 's', 'i', 'o', 'n']) { j += 6; true } else if low[j..].starts_with(&['e', 'r']) { j += 2; true } else { false };
+            let ok = if word {
+                j >= cs.len() || !low[j].is_ascii_alphabetic()
+            } else {
+                cs.get(j).is_some_and(|c| thai_digit(*c).is_some()) || (cs.get(j) == Some(&'.') && cs.get(j + 1).is_some_and(|c| thai_digit(*c).is_some()))
+            };
+            if ok {
+                if let Some((n, mut end)) = digits_after(&cs, j) {
+                    // เลขย่อย .0 เป็นส่วนหนึ่งของเลขฉบับ (เปลี่ยนชื่อไฟล์ต้องแทนทั้งก้อน)
+                    if cs.get(end) == Some(&'.') && cs.get(end + 1).is_some_and(|c| thai_digit(*c).is_some()) {
+                        end += 1;
+                        while end < cs.len() && thai_digit(cs[end]).is_some() { end += 1; }
+                    }
+                    if n >= 1 { out.push((n - 1, i, end)); i = end; continue; }
+                }
             }
         }
         for t in &thai {
@@ -363,12 +384,31 @@ pub fn find_revs(text: &str) -> Vec<u32> {
     v
 }
 
-/// เลข Rev. ของข้อความ เช่น "Rev.01" → 1, "Rev.0" → 0
+/// แบบฟอร์ม (FM-) ใช้เลข Rev. · เอกสารอื่น (QM/QP/WI/…) ใช้เลขฉบับแบบ v เช่น v4.0
+pub fn uses_v(code: &str) -> bool { !code.trim().to_ascii_uppercase().starts_with("FM-") }
+
+/// ป้ายเลขฉบับจากลำดับฉบับ: FM → "Rev.3" · เอกสารอื่น → "v4.0"
+pub fn rev_label(code: &str, n: u32) -> String {
+    if uses_v(code) { format!("v{}.0", n + 1) } else { format!("Rev.{n}") }
+}
+
+/// เลขฉบับของเอกสาร code ในรูปแบบที่ถูกต้อง: เอกสารที่ไม่ใช่ FM แปลง "Rev.03" → "v4.0" · ค่าอื่นคงเดิม
+pub fn to_doc_rev(code: &str, rev: &str) -> String {
+    let t = rev.trim();
+    let legacy = t.to_ascii_lowercase().starts_with("rev");
+    match rev_num(t) {
+        Some(n) if uses_v(code) && legacy => rev_label(code, n),
+        _ => rev.to_string(),
+    }
+}
+
+/// ลำดับฉบับของข้อความ เช่น "Rev.01" → 1, "Rev.0" → 0, "v4.0" → 3
 pub fn rev_num(rev: &str) -> Option<u32> {
     rev_spans(rev).first().map(|x| x.0).or_else(|| rev.trim().parse().ok())
 }
 
-/// เปลี่ยนเลข Rev. ตัวแรกในชื่อไฟล์เป็น rev ใหม่ เช่น ("FM-QC-003 Rev.0 ใบตรวจ.xlsx", "Rev.01") → "FM-QC-003 Rev.01 ใบตรวจ.xlsx"
+/// เปลี่ยนเลขฉบับตัวแรกในชื่อไฟล์เป็น rev ใหม่ เช่น ("FM-QC-003 Rev.0 ใบตรวจ.xlsx", "Rev.01") → "FM-QC-003 Rev.01 ใบตรวจ.xlsx",
+/// ("QP-MR-001 Rev.03.docx", "v5.0") → "QP-MR-001 v5.0.docx"
 /// ชื่อที่ไม่มีเลข Rev. คงเดิม
 pub fn rename_rev(filename: &str, rev: &str) -> String {
     let rev = rev.trim();
@@ -412,6 +452,24 @@ pub fn find_codes(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v_numbers() {
+        assert_eq!(rev_num("v4.0"), Some(3));
+        assert_eq!(rev_num("V1.0"), Some(0));
+        assert_eq!(rev_num("Rev.03"), Some(3));
+        assert_eq!(find_revs("QP-MR-001 version 2 หน้า 1"), vec![1]);
+        assert!(find_revs("ไฟ 220V 1 เฟส · TV1 · v0").is_empty());
+        assert_eq!(revs_near_code("QP-DCC-001 v4.0 วันที่ 01/01/2569", "QP-DCC-001"), vec![3]);
+        assert_eq!(rename_rev("QP-MR-001 Rev.03 การทบทวน.docx", "v5.0"), "QP-MR-001 v5.0 การทบทวน.docx");
+        assert_eq!(rename_rev("QP-MR-001 v4.0 การทบทวน.docx", "v5.0"), "QP-MR-001 v5.0 การทบทวน.docx");
+        assert_eq!(to_doc_rev("QP-MR-001", "Rev.03"), "v4.0");
+        assert_eq!(to_doc_rev("QM-MR-001", "Rev.00"), "v1.0");
+        assert_eq!(to_doc_rev("FM-QC-003", "Rev.03"), "Rev.03");
+        assert_eq!(to_doc_rev("QP-MR-001", "v4.0"), "v4.0");
+        assert_eq!(rev_label("WI-PD-001", 3), "v4.0");
+        assert_eq!(rev_label("FM-PD-001", 3), "Rev.3");
+    }
 
     #[test]
     fn finds_revision_forms() {

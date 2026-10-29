@@ -12,7 +12,7 @@
   export let me = null
   /** ต้องกรอก PIN ซ้ำเพื่อลงนามอิเล็กทรอนิกส์ */
   export let withPin = false
-  /** คำขอเปลี่ยนแปลงเอกสาร: { fromRev, newRev } — แสดงช่องเหตุผลและ Rev. ใหม่ */
+  /** คำขอเปลี่ยนแปลงเอกสาร: { fromRev, newRev } — แสดงช่องเหตุผลและ ฉบับใหม่ */
   export let change = null
   /** ค่าเริ่มต้น (ตอนส่งใหม่หลังถูกตีกลับ) */
   export let initialNote = ''
@@ -32,7 +32,7 @@
       return
     }
     if (change && !newRev.trim()) {
-      err = 'กรุณาระบุ Rev. ใหม่'
+      err = 'กรุณาระบุ ฉบับใหม่'
       return
     }
     if (fullChange && !topic.trim()) {
@@ -79,7 +79,7 @@
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div class="sgf"><label>ฉบับปัจจุบัน</label><input value={change.fromRev || '—'} disabled /></div>
-        <div class="sgf"><label>Rev. ใหม่ <em>*</em></label><input bind:value={newRev} placeholder="เช่น Rev.01" /></div>
+        <div class="sgf"><label>ฉบับใหม่ <em>*</em></label><input bind:value={newRev} placeholder={/^v/i.test(change.fromRev || change.newRev || '') ? 'เช่น v2.0' : 'เช่น Rev.01'} /></div>
       </div>
     {/if}
 
@@ -117,7 +117,7 @@
     <label class="sgchk">
       <input type="checkbox" bind:checked={chk} />
       <span>{change
-        ? 'ข้าพเจ้ายืนยันว่าฉบับร่างนี้ถูกต้อง และขอส่งให้ผู้ตรวจสอบ/ผู้อนุมัติพิจารณาก่อนมีผลบังคับใช้'
+        ? 'ข้าพเจ้ายืนยันว่าฉบับร่างนี้ถูกต้อง และขอส่งให้ผู้อนุมัติพิจารณาก่อนมีผลบังคับใช้'
         : 'ข้าพเจ้ายืนยันว่าการแก้ไขไฟล์นี้ถูกต้อง และบันทึกเข้าสู่ระบบควบคุมเอกสารแล้ว'}</span>
     </label>
     {#if err}<div class="merr">{err}</div>{/if}

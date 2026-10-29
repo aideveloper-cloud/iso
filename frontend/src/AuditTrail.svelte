@@ -47,8 +47,8 @@
   <p class="cat-desc">ทุกการลงนาม อนุมัติ แก้ไข และการเปลี่ยนสิทธิ์ถูกบันทึกโดยระบบ แก้ไขหรือลบจากหน้าเว็บไม่ได้ — ใช้แสดงต่อ Auditor ได้</p>
 </div>
 
-{#if !['reviewer', 'approver', 'admin'].includes(me?.role)}
-  <div class="merr">หน้านี้สำหรับผู้ตรวจสอบ ผู้อนุมัติ และผู้ดูแลระบบ</div>
+{#if !['approver', 'admin'].includes(me?.role)}
+  <div class="merr">หน้านี้สำหรับผู้อนุมัติและผู้ดูแลระบบ</div>
 {:else}
   <div class="controls">
     <div class="search-wrap"><span class="search-ic"><Icon name="search" size={16} /></span><input placeholder="ค้นหา ชื่อผู้ใช้ เลขที่ รายละเอียด..." bind:value={q} on:keydown={(e) => e.key === 'Enter' && load()} /></div>

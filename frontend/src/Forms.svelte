@@ -9,7 +9,7 @@
   export let me = null
 
   const STATUS = {
-    draft: 'ร่าง', review: 'รอตรวจสอบ', approve: 'รออนุมัติ', approved: 'อนุมัติแล้ว',
+    draft: 'ร่าง', approve: 'รออนุมัติ', approved: 'อนุมัติแล้ว',
     returned: 'ตีกลับ', cancelled: 'ยกเลิก', imported: 'นำเข้าจากเอกสารเดิม', superseded: 'ถูกแทนที่',
   }
   const MONTHS = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
@@ -506,7 +506,7 @@
         {#if editable()}<button class="mbtn gh mt-2" on:click={() => fileInput.click()}>แนบไฟล์</button><input bind:this={fileInput} type="file" class="hidden" on:change={onFile} />{/if}
       </section>
 
-      {#if rec.checkinUrl && editable() || (rec.status === 'review' || rec.status === 'approve' || rec.status === 'approved')}
+      {#if rec.checkinUrl && editable() || (rec.status === 'approve' || rec.status === 'approved')}
         <section class="ef-card">
           <h4><Icon name="layout-grid" size={14} /> QR เช็คอินผู้เข้าอบรม</h4>
           <div class="w-32">{@html rec.checkinQr || ''}</div>
@@ -534,9 +534,9 @@
         <button class="mbtn gh" on:click={() => save(false)}>บันทึกร่าง</button>
         <button class="mbtn accent" on:click={submitRec}>ส่งอนุมัติ</button>
       {/if}
-      {#if (rec.status === 'review' && me.role !== 'preparer' && me.role !== 'viewer' && (isAdmin() || rec.preparedBy !== me.empCode)) || (rec.status === 'approve' && (me.role === 'approver' || isAdmin()) && (isAdmin() || rec.preparedBy !== me.empCode))}
+      {#if rec.status === 'approve' && (me.role === 'approver' || isAdmin()) && (isAdmin() || rec.preparedBy !== me.empCode)}
         <input class="ef-in max-w-[360px]" placeholder="ความเห็น / เหตุผลตีกลับ" bind:value={reason} />
-        <button class="mbtn accent" on:click={() => act('pass')}>{rec.status === 'review' ? 'ตรวจผ่าน' : 'อนุมัติ'}</button>
+        <button class="mbtn accent" on:click={() => act('pass')}>อนุมัติ</button>
         <button class="mbtn danger" on:click={() => act('return')}>ตีกลับ</button>
       {/if}
       {#if rec.status === 'approved' && (isAdmin() || rec.preparedBy === me.empCode)}

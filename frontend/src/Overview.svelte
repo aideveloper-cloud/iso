@@ -45,7 +45,7 @@
           <div class="ov-row clickrow" role="button" tabindex="0" on:click={() => openFile(f)} on:keydown={(ev) => ev.key === 'Enter' && openFile(f)}>
             <span class="ov-ic text-brand"><Icon name={chip.icon} size={20} /></span>
             <div class="ov-name">{f.name}<span class="mut"> · {fmtKB(f.size)}</span>
-              {#if latest[f.path]}<span class="verpill" title="มี {latest[f.path].count} เวอร์ชัน">v{latest[f.path].version}</span><span class="ver-last-inline">อัปเดต {fmtWhen(latest[f.path].at)} โดย {latest[f.path].by}</span>{/if}</div>
+              {#if latest[f.path]}<span class="verpill" title="มี {latest[f.path].count} เวอร์ชัน">#{latest[f.path].version}</span><span class="ver-last-inline">อัปเดต {fmtWhen(latest[f.path].at)} โดย {latest[f.path].by}</span>{/if}</div>
             <span class="tag {chip.c}">{chip.t}</span>
             <div class="ov-btns">
               <button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openFile(f)}><Icon name="eye" size={14} /> เปิดดู</button>

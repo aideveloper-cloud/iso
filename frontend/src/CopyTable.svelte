@@ -1,5 +1,5 @@
 <script>
-  // ตารางสำเนาเอกสาร — ใช้ในหน้าเอกสาร (แท็บสำเนา) และหน้าควบคุม Rev. / สำเนา
+  // ตารางสำเนาเอกสาร — ใช้ในหน้าเอกสาร (แท็บสำเนา) และหน้าควบคุมฉบับ / สำเนา
   import { createEventDispatcher } from 'svelte'
   import { copyPdfUrl } from './lib/api.js'
   import { fmtWhen } from './lib/changeNote.js'
@@ -11,21 +11,21 @@
   export let me = null
   /** แสดงคอลัมน์เอกสาร (หน้ารวม) */
   export let showDoc = true
-  /** แสดง Rev. ปัจจุบันเทียบ (รายการต้องเรียกคืน) */
+  /** แสดงฉบับปัจจุบันเทียบ (รายการต้องเรียกคืน) */
   export let showCurrent = false
   const dispatch = createEventDispatcher()
 
-  const reviewer = () => ['reviewer', 'approver', 'admin'].includes(me?.role)
+  const approver = () => ['approver', 'admin'].includes(me?.role)
   const mine = (c) => c.holderCode && c.holderCode === me?.empCode
-  const canClose = (c) => ['active', 'recall'].includes(c.status) && (reviewer() || mine(c))
-  const canPrint = (c) => c.kind === 'print' && c.status === 'active' && (reviewer() || mine(c))
+  const canClose = (c) => ['active', 'recall'].includes(c.status) && (approver() || mine(c))
+  const canPrint = (c) => c.kind === 'print' && c.status === 'active' && (approver() || mine(c))
   let closing = null
 </script>
 
 <div class="sec !p-0 overflow-auto">
   <table class="chg-table">
     <thead><tr>
-      <th>เลขสำเนา</th>{#if showDoc}<th>เอกสาร</th>{/if}<th>Rev.</th>{#if showCurrent}<th>ปัจจุบัน</th>{/if}<th>ประเภท</th><th>ผู้ถือ / จุดใช้งาน</th><th>สถานะ</th><th>ออกเมื่อ</th><th></th>
+      <th>เลขสำเนา</th>{#if showDoc}<th>เอกสาร</th>{/if}<th>ฉบับ</th>{#if showCurrent}<th>ปัจจุบัน</th>{/if}<th>ประเภท</th><th>ผู้ถือ / จุดใช้งาน</th><th>สถานะ</th><th>ออกเมื่อ</th><th></th>
     </tr></thead>
     <tbody>
       {#each rows as c (c.id)}

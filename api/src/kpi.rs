@@ -1,6 +1,6 @@
 // วัตถุประสงค์คุณภาพและตัวชี้วัด (ISO 9001:2015 ข้อ 6.2, 9.1.1, 9.1.3)
 //   วัตถุประสงค์ที่วัดได้: เป้าหมาย (≥ / ≤) หน่วย ความถี่ ผู้รับผิดชอบ และแผนบรรลุ (6.2.2: ทำอะไร ทรัพยากร ใคร เมื่อไร ประเมินอย่างไร)
-//   ผลรายงวด (เดือน/ไตรมาส/ปี) บันทึกโดยผู้รับผิดชอบหรือผู้ตรวจสอบขึ้นไป · ไม่ถึงเป้า → เปิด CAR ได้จากหน้าเดียวกัน
+//   ผลรายงวด (เดือน/ไตรมาส/ปี) บันทึกโดยผู้รับผิดชอบหรือผู้อนุมัติขึ้นไป · ไม่ถึงเป้า → เปิด CAR ได้จากหน้าเดียวกัน
 //   ข้อมูลนี้ป้อนให้หน้าเตรียม Audit (ความครบของผล) และการทบทวนฝ่ายบริหาร (9.3.2 c2) อัตโนมัติ
 use crate::capa;
 use crate::eform::{self, AuthUser};
@@ -203,14 +203,14 @@ async fn load_all(c: &impl deadpool_postgres::GenericClient, only: Option<i64>) 
 }
 
 fn can_flags(u: &AuthUser, o: &Value) -> Value {
-    let reviewer = eform::can_review(&u.role);
+    let approver = eform::can_approve(&u.role);
     let owner = s(o, "ownerCode") == u.emp_code;
     let active = s(o, "status") == "active";
     json!({
-        "edit": reviewer && active,
-        "record": active && u.role != "viewer" && (owner || reviewer),
-        "car": u.role != "viewer" && (owner || reviewer),
-        "retire": reviewer && active,
+        "edit": approver && active,
+        "record": active && u.role != "viewer" && (owner || approver),
+        "car": u.role != "viewer" && (owner || approver),
+        "retire": approver && active,
     })
 }
 
@@ -220,7 +220,7 @@ pub async fn list(State(st): State<S>, Extension(u): Extension<AuthUser>) -> Res
     let Ok(c) = st.db.get().await else { return db_err() };
     let mut objs = load_all(&c, None).await;
     for o in objs.iter_mut() { o["can"] = can_flags(&u, o); }
-    Json(json!({ "objectives": objs, "canCreate": eform::can_review(&u.role), "graceDays": GRACE_DAYS })).into_response()
+    Json(json!({ "objectives": objs, "canCreate": eform::can_approve(&u.role), "graceDays": GRACE_DAYS })).into_response()
 }
 
 async fn one(c: &impl deadpool_postgres::GenericClient, u: &AuthUser, id: i64) -> Response {
@@ -271,9 +271,9 @@ fn gaps(o: &Value) -> Vec<&'static str> {
     g
 }
 
-/// สร้างวัตถุประสงค์ใหม่ (ผู้ตรวจสอบขึ้นไป — ฝ่ายบริหาร/QMR เป็นผู้กำหนด)
+/// สร้างวัตถุประสงค์ใหม่ (ผู้อนุมัติขึ้นไป — ฝ่ายบริหาร/QMR เป็นผู้กำหนด)
 pub async fn create(State(st): State<S>, Extension(u): Extension<AuthUser>, Json(f): Json<Fields>) -> Response {
-    if !eform::can_review(&u.role) { return forbid("กำหนดวัตถุประสงค์คุณภาพได้เฉพาะผู้ตรวจสอบ ผู้อนุมัติ หรือผู้ดูแลระบบ"); }
+    if !eform::can_approve(&u.role) { return forbid("กำหนดวัตถุประสงค์คุณภาพได้เฉพาะผู้อนุมัติ หรือผู้ดูแลระบบ"); }
     let Ok(c) = st.db.get().await else { return db_err() };
     let mut o = json!({ "direction": "gte", "frequency": "monthly", "target": 0.0, "status": "active" });
     if f.title.as_deref().map(|t| t.trim().is_empty()).unwrap_or(true) { return bad("ต้องระบุวัตถุประสงค์/ตัวชี้วัด"); }
@@ -307,11 +307,11 @@ pub async fn create(State(st): State<S>, Extension(u): Extension<AuthUser>, Json
 #[derive(Deserialize)]
 pub struct UpdateReq { version: i64, fields: Fields }
 
-/// แก้ไขวัตถุประสงค์ (ผู้ตรวจสอบขึ้นไป) — เปลี่ยนเป้าหมายไม่กระทบผลงวดที่บันทึกแล้ว (แต่ละงวดเก็บเป้าหมาย ณ ตอนบันทึก)
+/// แก้ไขวัตถุประสงค์ (ผู้อนุมัติขึ้นไป) — เปลี่ยนเป้าหมายไม่กระทบผลงวดที่บันทึกแล้ว (แต่ละงวดเก็บเป้าหมาย ณ ตอนบันทึก)
 pub async fn update(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<UpdateReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(mut o) = load_all(&c, Some(id)).await.into_iter().next() else { return err(StatusCode::NOT_FOUND, "ไม่พบวัตถุประสงค์นี้") };
-    if can_flags(&u, &o)["edit"] != json!(true) { return forbid("แก้ไขได้เฉพาะผู้ตรวจสอบขึ้นไป และวัตถุประสงค์ที่ยังใช้งาน"); }
+    if can_flags(&u, &o)["edit"] != json!(true) { return forbid("แก้ไขได้เฉพาะผู้อนุมัติขึ้นไป และวัตถุประสงค์ที่ยังใช้งาน"); }
     let before = o.clone();
     if let Some(fr) = &b.fields.frequency { o["frequency"] = json!(fr); }
     if let Err(r) = apply(&c, &mut o, b.fields).await { return r; }
@@ -339,7 +339,7 @@ pub struct RetireReq { version: i64, reason: String }
 pub async fn retire(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<RetireReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(o) = load_all(&c, Some(id)).await.into_iter().next() else { return err(StatusCode::NOT_FOUND, "ไม่พบวัตถุประสงค์นี้") };
-    if can_flags(&u, &o)["retire"] != json!(true) { return forbid("เลิกใช้ได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &o)["retire"] != json!(true) { return forbid("เลิกใช้ได้เฉพาะผู้อนุมัติขึ้นไป"); }
     let reason = clip(&b.reason, 1000);
     if reason.is_empty() { return bad("กรุณาระบุเหตุผล"); }
     let n = c.execute("UPDATE kpi_objectives SET version=version+1,status='retired',retire_reason=$3,updated_at=$4 WHERE id=$1 AND version=$2",
@@ -352,11 +352,11 @@ pub async fn retire(Path(id): Path<i64>, State(st): State<S>, Extension(u): Exte
 #[derive(Deserialize)]
 pub struct ResultReq { period: String, actual: f64, note: Option<String>, evidence: Option<String> }
 
-/// บันทึก/แก้ผลของงวด (ผู้รับผิดชอบหรือผู้ตรวจสอบขึ้นไป) — ค่าเดิมถูกเก็บใน audit log เมื่อมีการแก้
+/// บันทึก/แก้ผลของงวด (ผู้รับผิดชอบหรือผู้อนุมัติขึ้นไป) — ค่าเดิมถูกเก็บใน audit log เมื่อมีการแก้
 pub async fn record(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<ResultReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(o) = load_all(&c, Some(id)).await.into_iter().next() else { return err(StatusCode::NOT_FOUND, "ไม่พบวัตถุประสงค์นี้") };
-    if can_flags(&u, &o)["record"] != json!(true) { return forbid("บันทึกผลได้เฉพาะผู้รับผิดชอบตัวชี้วัด หรือผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &o)["record"] != json!(true) { return forbid("บันทึกผลได้เฉพาะผู้รับผิดชอบตัวชี้วัด หรือผู้อนุมัติขึ้นไป"); }
     let freq = s(&o, "frequency");
     let period = clip(&b.period, 10);
     let Some(end) = period_end(&freq, &period) else { return bad("งวดไม่ถูกต้องตามความถี่ของตัวชี้วัด"); };
@@ -390,7 +390,7 @@ pub struct CarReq { period: String }
 pub async fn raise_car(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<CarReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(o) = load_all(&c, Some(id)).await.into_iter().next() else { return err(StatusCode::NOT_FOUND, "ไม่พบวัตถุประสงค์นี้") };
-    if can_flags(&u, &o)["car"] != json!(true) { return forbid("เปิด CAR ได้เฉพาะผู้รับผิดชอบตัวชี้วัด หรือผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &o)["car"] != json!(true) { return forbid("เปิด CAR ได้เฉพาะผู้รับผิดชอบตัวชี้วัด หรือผู้อนุมัติขึ้นไป"); }
     let Some(r) = o["results"].as_array().and_then(|a| a.iter().find(|r| r["period"] == json!(b.period)).cloned()) else { return bad("ไม่พบผลของงวดนี้"); };
     if r["met"] == json!(true) { return bad("งวดนี้ถึงเป้าแล้ว"); }
     if !s(&r, "carRef").is_empty() { return bad(&format!("งวดนี้เปิด {} ไว้แล้ว", s(&r, "carRef"))); }

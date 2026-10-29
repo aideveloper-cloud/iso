@@ -18,7 +18,7 @@
   const dispatch = createEventDispatcher()
 
   const SEV = { high: ['สำคัญมาก', 'r-major'], medium: ['ควรแก้', 'r-minor'], low: ['เล็กน้อย', ''] }
-  const CAT = { rev: 'Rev./วันที่', reference: 'การอ้างอิงเอกสาร', iso: 'ข้อกำหนด ISO', consistency: 'ความสอดคล้อง', clarity: 'ความชัดเจน', missing: 'ขาดหัวข้อ/ช่อง', format: 'รูปแบบ' }
+  const CAT = { rev: 'เลขฉบับ/วันที่', reference: 'การอ้างอิงเอกสาร', iso: 'ข้อกำหนด ISO', consistency: 'ความสอดคล้อง', clarity: 'ความชัดเจน', missing: 'ขาดหัวข้อ/ช่อง', format: 'รูปแบบ' }
 
   let status = null, review = null, busy = false, applying = false, err = '', loading = true
   $: list = review?.suggestions || []
@@ -77,7 +77,7 @@
   <div class="empty-state"><Icon name="lightbulb" size={30} stroke={1.5} /><p>ยังไม่ได้เปิดผู้ช่วย AI — ผู้ดูแลระบบต้องตั้งค่า <code>OPENAI_API_KEY</code> บนเซิร์ฟเวอร์</p></div>
 {:else}
   <p class="mnote">
-    {kind === 'doc' ? 'AI อ่านเนื้อหาเอกสาร ข้อมูลทะเบียน และผลตรวจ Rev. แล้วเสนอแนะ' : 'AI เทียบฉบับปัจจุบันกับฉบับร่าง แล้วสรุปสิ่งที่เปลี่ยนและประเด็นที่ควรตรวจ'}
+    {kind === 'doc' ? 'AI อ่านเนื้อหาเอกสาร ข้อมูลทะเบียน และผลตรวจเลขฉบับแล้วเสนอแนะ' : 'AI เทียบฉบับปัจจุบันกับฉบับร่าง แล้วสรุปสิ่งที่เปลี่ยนและประเด็นที่ควรตรวจ'}
     — เป็นเพียงข้อแนะนำ คุณเลือกเองว่าจะทำตามข้อไหน · เนื้อหาเอกสารถูกส่งไปประมวลผลที่ OpenAI
   </p>
   {#if err}<div class="merr">{err}</div>{/if}

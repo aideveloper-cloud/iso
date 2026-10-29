@@ -148,16 +148,16 @@ fn eval_json(r: &tokio_postgres::Row) -> Value {
 }
 
 fn can_flags(u: &AuthUser, p: &Value) -> Value {
-    let reviewer = eform::can_review(&u.role);
+    let approver = eform::can_approve(&u.role);
     let owner = s(p, "ownerCode") == u.emp_code;
     let write = u.role != "viewer";
     json!({
-        "edit": write && (owner || reviewer || s(p, "createdBy") == u.emp_code),
-        "evaluate": write && (owner || reviewer),
-        "car": write && (owner || reviewer),
-        "setStatus": write && reviewer,
-        // ผู้ตรวจสอบขึ้นไปกำหนดสถานะต่างจากที่แนะนำได้ (พร้อมเหตุผล) — ผู้รับผิดชอบทั่วไปใช้สถานะตามผลประเมิน
-        "override": write && reviewer,
+        "edit": write && (owner || approver || s(p, "createdBy") == u.emp_code),
+        "evaluate": write && (owner || approver),
+        "car": write && (owner || approver),
+        "setStatus": write && approver,
+        // ผู้อนุมัติขึ้นไปกำหนดสถานะต่างจากที่แนะนำได้ (พร้อมเหตุผล) — ผู้รับผิดชอบทั่วไปใช้สถานะตามผลประเมิน
+        "override": write && approver,
     })
 }
 
@@ -240,7 +240,7 @@ async fn apply(c: &impl deadpool_postgres::GenericClient, p: &mut Value, f: Fiel
 pub struct CreateReq {
     #[serde(flatten)]
     fields: Fields,
-    /// สถานะเริ่มต้น — อนุมัติ/ระงับ ต้องเป็นผู้ตรวจสอบขึ้นไป (ผู้ขายเดิมที่อนุมัติอยู่แล้ว) · อื่น ๆ = มีเงื่อนไขจนกว่าจะประเมินครั้งแรก
+    /// สถานะเริ่มต้น — อนุมัติ/ระงับ ต้องเป็นผู้อนุมัติขึ้นไป (ผู้ขายเดิมที่อนุมัติอยู่แล้ว) · อื่น ๆ = มีเงื่อนไขจนกว่าจะประเมินครั้งแรก
     status: Option<String>,
     reason: Option<String>,
 }
@@ -256,7 +256,7 @@ pub async fn create(State(st): State<S>, Extension(u): Extension<AuthUser>, Json
     if !g.is_empty() { return bad(&format!("ยังขาด: {}", g.join(", "))); }
     let status = b.status.unwrap_or_else(|| "conditional".into());
     if !STATUSES.contains(&status.as_str()) { return bad("สถานะไม่ถูกต้อง"); }
-    if status != "conditional" && !eform::can_review(&u.role) { return forbid("กำหนดสถานะอนุมัติ/ระงับได้เฉพาะผู้ตรวจสอบขึ้นไป — ผู้ขายใหม่เริ่มที่ มีเงื่อนไข จนกว่าจะประเมิน"); }
+    if status != "conditional" && !eform::can_approve(&u.role) { return forbid("กำหนดสถานะอนุมัติ/ระงับได้เฉพาะผู้อนุมัติขึ้นไป — ผู้ขายใหม่เริ่มที่ มีเงื่อนไข จนกว่าจะประเมิน"); }
     let reason = clip(&b.reason.unwrap_or_default(), 2000);
     if status != "conditional" && reason.is_empty() { return bad("กรุณาระบุเหตุผล/หลักฐานการอนุมัติหรือระงับ"); }
     let today = capa::today();
@@ -288,7 +288,7 @@ pub struct UpdateReq { version: i64, fields: Fields }
 pub async fn update(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<UpdateReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(mut p) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบผู้ขายนี้") };
-    if can_flags(&u, &p)["edit"] != json!(true) { return forbid("แก้ไขได้เฉพาะผู้บันทึก ผู้รับผิดชอบ หรือผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &p)["edit"] != json!(true) { return forbid("แก้ไขได้เฉพาะผู้บันทึก ผู้รับผิดชอบ หรือผู้อนุมัติขึ้นไป"); }
     let before = p.clone();
     if let Err(x) = apply(&c, &mut p, b.fields).await { return x; }
     let g = gaps(&p);
@@ -318,12 +318,12 @@ pub struct EvalReq {
     note: Option<String>, status: Option<String>, nextEval: Option<String>,
 }
 
-/// บันทึกผลประเมิน — คำนวณคะแนน/เกรด/สถานะที่แนะนำฝั่ง server · ผู้ตรวจสอบขึ้นไปกำหนดสถานะต่างจากที่แนะนำได้พร้อมเหตุผล
+/// บันทึกผลประเมิน — คำนวณคะแนน/เกรด/สถานะที่แนะนำฝั่ง server · ผู้อนุมัติขึ้นไปกำหนดสถานะต่างจากที่แนะนำได้พร้อมเหตุผล
 pub async fn evaluate(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<EvalReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(p) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบผู้ขายนี้") };
     let can = can_flags(&u, &p);
-    if can["evaluate"] != json!(true) { return forbid("ประเมินได้เฉพาะผู้รับผิดชอบประเมิน หรือผู้ตรวจสอบขึ้นไป"); }
+    if can["evaluate"] != json!(true) { return forbid("ประเมินได้เฉพาะผู้รับผิดชอบประเมิน หรือผู้อนุมัติขึ้นไป"); }
     let items = [b.quality, b.delivery, b.price, b.service];
     if items.iter().any(|x| !(1..=5).contains(x)) { return bad("คะแนนแต่ละหัวข้อต้องอยู่ระหว่าง 1–5"); }
     let today = capa::today();
@@ -339,7 +339,7 @@ pub async fn evaluate(Path(id): Path<i64>, State(st): State<S>, Extension(u): Ex
     if !STATUSES.contains(&status.as_str()) { return bad("สถานะไม่ถูกต้อง"); }
     let note = clip(&b.note.unwrap_or_default(), 3000);
     if status != rec {
-        if can["override"] != json!(true) { return forbid(&format!("สถานะตามผลประเมินคือ {} — กำหนดต่างจากนี้ได้เฉพาะผู้ตรวจสอบขึ้นไป", status_th(rec))); }
+        if can["override"] != json!(true) { return forbid(&format!("สถานะตามผลประเมินคือ {} — กำหนดต่างจากนี้ได้เฉพาะผู้อนุมัติขึ้นไป", status_th(rec))); }
         if note.is_empty() { return bad("กำหนดสถานะต่างจากที่แนะนำ ต้องระบุเหตุผลในหมายเหตุ"); }
     }
     if poor(gr, min_item) && note.is_empty() { return bad("ผลประเมินต่ำ — กรุณาบันทึกข้อมูลประกอบ/ปัญหาที่พบในหมายเหตุ"); }
@@ -381,11 +381,11 @@ pub async fn evaluate(Path(id): Path<i64>, State(st): State<S>, Extension(u): Ex
 #[derive(Deserialize)]
 pub struct StatusReq { version: i64, status: String, reason: Option<String> }
 
-/// เปลี่ยนสถานะโดยตรง (ผู้ตรวจสอบขึ้นไป พร้อมเหตุผล) — เช่น ระงับทันทีเมื่อเกิดปัญหาร้ายแรง หรืออนุมัติจากการตรวจสถานที่
+/// เปลี่ยนสถานะโดยตรง (ผู้อนุมัติขึ้นไป พร้อมเหตุผล) — เช่น ระงับทันทีเมื่อเกิดปัญหาร้ายแรง หรืออนุมัติจากการตรวจสถานที่
 pub async fn set_status(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<StatusReq>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(p) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบผู้ขายนี้") };
-    if can_flags(&u, &p)["setStatus"] != json!(true) { return forbid("เปลี่ยนสถานะได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &p)["setStatus"] != json!(true) { return forbid("เปลี่ยนสถานะได้เฉพาะผู้อนุมัติขึ้นไป"); }
     if !STATUSES.contains(&b.status.as_str()) { return bad("สถานะไม่ถูกต้อง"); }
     if b.status == s(&p, "status") { return bad("สถานะเดิมอยู่แล้ว"); }
     let reason = clip(&b.reason.unwrap_or_default(), 2000);
@@ -410,7 +410,7 @@ pub async fn set_status(Path(id): Path<i64>, State(st): State<S>, Extension(u): 
 pub async fn raise_car(Path((id, vid)): Path<(i64, i64)>, State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(p) = load(&c, id).await else { return err(StatusCode::NOT_FOUND, "ไม่พบผู้ขายนี้") };
-    if can_flags(&u, &p)["car"] != json!(true) { return forbid("เปิด CAR ได้เฉพาะผู้รับผิดชอบประเมิน หรือผู้ตรวจสอบขึ้นไป"); }
+    if can_flags(&u, &p)["car"] != json!(true) { return forbid("เปิด CAR ได้เฉพาะผู้รับผิดชอบประเมิน หรือผู้อนุมัติขึ้นไป"); }
     let Some(v) = c.query_opt(&format!("SELECT {VCOLS} FROM supplier_evals WHERE id=$1 AND supplier_id=$2"), &[&vid, &id]).await.ok().flatten().map(|r| eval_json(&r))
         else { return err(StatusCode::NOT_FOUND, "ไม่พบผลประเมินนี้") };
     if v["poor"] != json!(true) { return bad("เปิด CAR ได้เฉพาะผลประเมินต่ำ (เกรด C/D หรือมีหัวข้อได้ 1 คะแนน)"); }

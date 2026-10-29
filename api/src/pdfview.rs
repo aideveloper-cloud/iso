@@ -81,7 +81,7 @@ pub async fn doc_pdf(Path(code): Path<String>, Query(q): Query<HashMap<String, S
     let original = pdf.clone();
     match tokio::task::spawn_blocking(move || stamp::apply(&pdf, &s)).await {
         Ok(Ok(b)) => pdf_response(b, &name),
-        Ok(Err(e)) => { eprintln!("  ⚠ ประทับตรา {code} v{v} ไม่ได้: {e}"); pdf_response(original, &name) }
+        Ok(Err(e)) => { eprintln!("  ⚠ ประทับตรา {code} #{v} ไม่ได้: {e}"); pdf_response(original, &name) }
         Err(_) => pdf_response(original, &name),
     }
 }

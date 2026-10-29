@@ -1,5 +1,5 @@
 // ควบคุมการเปลี่ยนแปลงเอกสาร (Document Change Control, ISO 9001:2015 ข้อ 7.5.2–7.5.3)
-//   คำขอเปลี่ยนแปลง (DCR): ผู้จัดทำส่งไฟล์ฉบับร่าง → ผู้ตรวจสอบ → ผู้อนุมัติ → มีผลบังคับใช้ (สร้างเวอร์ชันใหม่ + Rev. ใหม่)
+//   คำขอเปลี่ยนแปลง (DCR): ผู้จัดทำส่งไฟล์ฉบับร่าง → ผู้อนุมัติ → มีผลบังคับใช้ (สร้างเวอร์ชันใหม่ + Rev. ใหม่)
 //   ทุกขั้นลงนามด้วยผู้ใช้ที่ login + กรอก PIN ซ้ำ และบันทึก SHA-256 ของไฟล์ที่ลงนาม
 //   ยกเลิกใช้ (Obsolete) / นำกลับมาใช้ — กันการนำเอกสารที่ไม่ใช้แล้วไปใช้โดยไม่ตั้งใจ
 use crate::eform::{self, AuthUser};
@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS doc_changes(
   updated_at TEXT NOT NULL,
   closed_at TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS idx_dc_doc ON doc_changes(doc_code);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_dc_open ON doc_changes(doc_code) WHERE status IN ('review','approve','returned');
+-- ยกเลิกขั้นตรวจสอบ: คำขอที่ค้างรอตรวจสอบย้ายไปรออนุมัติ (index เดิมที่ยังมี 'review' ในเงื่อนไขให้ผลเท่ากัน)
+UPDATE doc_changes SET status='approve' WHERE status='review';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_dc_open ON doc_changes(doc_code) WHERE status IN ('approve','returned');
 CREATE TABLE IF NOT EXISTS doc_change_steps(
   id BIGSERIAL PRIMARY KEY,
   change_id BIGINT NOT NULL,
@@ -70,7 +72,7 @@ CREATE TABLE IF NOT EXISTS doc_status(
 ";
 
 /// สถานะที่ยังไม่จบ — เอกสารหนึ่งฉบับมีคำขอค้างได้ครั้งละ 1 ใบ (บังคับด้วย uq_dc_open)
-const OPEN: [&str; 3] = ["review", "approve", "returned"];
+const OPEN: [&str; 2] = ["approve", "returned"];
 const DCOLS: &str = "id,ref_no,doc_code,status,reason,note,from_rev,new_rev,filename,ext,stored_name,size,sha256,source,base_version,prepared_by,prepared_name,prepared_position,version,created_at,updated_at,closed_at";
 
 fn db_err() -> Response { err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") }
@@ -90,13 +92,12 @@ fn change_json(r: &tokio_postgres::Row) -> Value {
     })
 }
 
-/// สิทธิ์ของผู้ใช้ต่อคำขอนี้ — ผู้จัดทำตรวจ/อนุมัติคำขอของตนเองไม่ได้ (ยกเว้นผู้ดูแลระบบ ตามกติกาเดียวกับ e-form)
+/// สิทธิ์ของผู้ใช้ต่อคำขอนี้ — ผู้จัดทำอนุมัติคำขอของตนเองไม่ได้ (ยกเว้นผู้ดูแลระบบ ตามกติกาเดียวกับ e-form)
 fn can_flags(u: &AuthUser, ch: &Value) -> Value {
     let status = ch["status"].as_str().unwrap_or("");
     let own = ch["preparedBy"].as_str() == Some(u.emp_code.as_str());
     let other = eform::is_admin(&u.role) || !own;
     json!({
-        "review": status == "review" && eform::can_review(&u.role) && other,
         "approve": status == "approve" && eform::can_approve(&u.role) && other,
         "resubmit": status == "returned" && own,
         "cancel": is_open(status) && (own || eform::is_admin(&u.role)),
@@ -147,10 +148,18 @@ async fn detail_resp(st: &S, u: &AuthUser, id: i64) -> Response {
     Json(ch).into_response()
 }
 
-// ---------- Rev. / วันที่บังคับใช้ ----------
+// ---------- เลขฉบับ (Rev. / v) / วันที่บังคับใช้ ----------
+
+/// เลขฉบับถัดไปของเอกสาร code: แบบฟอร์ม FM "Rev.00" → "Rev.01" · เอกสารอื่น "v4.0" (หรือ Rev.03 เดิม) → "v5.0", ว่าง → "v1.0"
+pub fn next_rev(code: &str, rev: &str) -> String {
+    if crate::revscan::uses_v(code) {
+        return format!("v{}.0", crate::revscan::rev_num(rev).map(|n| n + 2).unwrap_or(1));
+    }
+    bump_rev(rev)
+}
 
 /// Rev. ถัดไป: "Rev.00" → "Rev.01", "Rev.9" → "Rev.10", ว่าง → "Rev.01"
-pub fn bump_rev(rev: &str) -> String {
+fn bump_rev(rev: &str) -> String {
     let t = rev.trim();
     let digits = t.chars().rev().take_while(|c| c.is_ascii_digit()).count();
     let (pre, num) = t.split_at(t.len() - digits);
@@ -204,7 +213,7 @@ pub async fn control_map(st: &S) -> ControlMap {
             m.status.insert(r.get(0), json!({ "status": r.get::<_, String>(1), "reason": r.get::<_, String>(2), "by": r.get::<_, String>(3), "at": r.get::<_, String>(4) }));
         }
     }
-    if let Ok(rows) = client.query("SELECT id,ref_no,doc_code,status,new_rev,prepared_name FROM doc_changes WHERE status IN ('review','approve','returned')", &[]).await {
+    if let Ok(rows) = client.query("SELECT id,ref_no,doc_code,status,new_rev,prepared_name FROM doc_changes WHERE status IN ('approve','returned')", &[]).await {
         for r in rows {
             m.open.insert(r.get(2), json!({ "id": r.get::<_, i64>(0), "refNo": r.get::<_, String>(1), "status": r.get::<_, String>(3), "newRev": r.get::<_, String>(4), "preparedName": r.get::<_, String>(5) }));
         }
@@ -229,23 +238,23 @@ pub async fn download_name(st: &S, code: &str, v: i64, filename: &str) -> String
     let Ok(c) = st.db.get().await else { return filename.to_string() };
     if is_obsolete(&c, code).await { return format!("OBSOLETE - {filename}"); }
     let latest: i64 = c.query_one("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=$1", &[&code]).await.map(|r| r.get(0)).unwrap_or(0);
-    if v < latest { return format!("UNCONTROLLED v{v} - {filename}"); }
+    if v < latest { return format!("UNCONTROLLED #{v} - {filename}"); }
     // ฉบับปัจจุบัน: เลข Rev. ในชื่อไฟล์ต้องตรงทะเบียน (ไฟล์ต้นฉบับบนดิสก์อาจยังชื่อ Rev. เดิม)
     crate::revscan::rename_rev(filename, &current_rev(st, &c, code).await)
 }
 
-/// จำนวนคำขอที่รอผู้ใช้คนนี้ตรวจสอบ/อนุมัติ
+/// จำนวนคำขอที่รอผู้ใช้คนนี้อนุมัติ
 pub async fn pending_count(st: &S, u: &AuthUser) -> i64 {
     pending_items(st, u).await.len() as i64
 }
 
-/// คำขอที่รอผู้ใช้นี้ตรวจสอบ/อนุมัติ (ใช้กับตัวนับเมนูและงานของฉัน)
+/// คำขอที่รอผู้ใช้นี้อนุมัติ (ใช้กับตัวนับเมนูและงานของฉัน)
 pub async fn pending_items(st: &S, u: &AuthUser) -> Vec<Value> {
     let Ok(c) = st.db.get().await else { return vec![] };
-    let Ok(rows) = c.query(&format!("SELECT {DCOLS} FROM doc_changes WHERE status IN ('review','approve') ORDER BY updated_at"), &[]).await else { return vec![] };
+    let Ok(rows) = c.query(&format!("SELECT {DCOLS} FROM doc_changes WHERE status='approve' ORDER BY updated_at"), &[]).await else { return vec![] };
     rows.iter().map(change_json).filter(|ch| {
         let f = can_flags(u, ch);
-        f["review"] == json!(true) || f["approve"] == json!(true)
+        f["approve"] == json!(true)
     }).collect()
 }
 
@@ -276,10 +285,19 @@ fn store_draft(st: &S, ref_no: &str, round: i64, ext: &str, bytes: &[u8]) -> Res
     Ok(name)
 }
 
-fn validate_rev(new_rev: &str, from_rev: &str) -> Result<(), Response> {
-    if new_rev.is_empty() { return Err(err(StatusCode::BAD_REQUEST, "กรุณาระบุ Rev. ใหม่")); }
+fn validate_rev(code: &str, new_rev: &str, from_rev: &str) -> Result<(), Response> {
+    if new_rev.is_empty() { return Err(err(StatusCode::BAD_REQUEST, "กรุณาระบุเลขฉบับใหม่")); }
     if new_rev.eq_ignore_ascii_case(from_rev.trim()) {
-        return Err(err(StatusCode::BAD_REQUEST, &format!("Rev. ใหม่ต้องไม่ซ้ำกับฉบับปัจจุบัน ({from_rev})")));
+        return Err(err(StatusCode::BAD_REQUEST, &format!("เลขฉบับใหม่ต้องไม่ซ้ำกับฉบับปัจจุบัน ({from_rev})")));
+    }
+    // เอกสารที่ไม่ใช่แบบฟอร์มใช้เลขฉบับแบบ v (Rev. ใช้กับการแก้แบบฟอร์ม FM เท่านั้น)
+    if crate::revscan::uses_v(code) {
+        let ok = new_rev.strip_prefix(['v', 'V']).is_some_and(|n| {
+            let mut p = n.splitn(2, '.');
+            p.next().is_some_and(|m| !m.is_empty() && m.chars().all(|c| c.is_ascii_digit()) && m != "0" && !m.starts_with('0'))
+                && p.next().is_none_or(|x| !x.is_empty() && x.chars().all(|c| c.is_ascii_digit()))
+        });
+        if !ok { return Err(err(StatusCode::BAD_REQUEST, &format!("เลขฉบับของ {code} ต้องเป็นแบบ v เช่น {}", next_rev(code, from_rev)))); }
     }
     Ok(())
 }
@@ -317,7 +335,7 @@ async fn draft_of(st: &S, client: &impl deadpool_postgres::GenericClient, u: &Au
     }
 }
 
-/// ส่งคำขอเปลี่ยนแปลงเอกสาร (ผู้จัดทำลงนาม) → รอตรวจสอบ
+/// ส่งคำขอเปลี่ยนแปลงเอกสาร (ผู้จัดทำลงนาม) → รออนุมัติ
 pub async fn create(Path(code): Path<String>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(mut b): Json<ChangeReq>) -> Response {
     let Some(doc) = st.by_code.get(&code).cloned() else { return err(StatusCode::NOT_FOUND, "ไม่พบเอกสาร") };
     if u.role == "viewer" { return err(StatusCode::FORBIDDEN, "บัญชีผู้อ่านอย่างเดียวส่งคำขอแก้ไขไม่ได้"); }
@@ -325,7 +343,7 @@ pub async fn create(Path(code): Path<String>, State(st): State<S>, Extension(u):
     if reason.is_empty() { return err(StatusCode::BAD_REQUEST, "กรุณาระบุเหตุผลการเปลี่ยนแปลง"); }
     let Ok(client) = st.db.get().await else { return db_err() };
     if is_obsolete(&client, &code).await { return err(StatusCode::CONFLICT, "เอกสารนี้ถูกยกเลิกใช้แล้ว — ต้องนำกลับมาใช้ก่อนจึงจะแก้ไขได้"); }
-    if let Ok(Some(r)) = client.query_opt("SELECT ref_no FROM doc_changes WHERE doc_code=$1 AND status IN ('review','approve','returned')", &[&code]).await {
+    if let Ok(Some(r)) = client.query_opt("SELECT ref_no FROM doc_changes WHERE doc_code=$1 AND status IN ('approve','returned')", &[&code]).await {
         return err(StatusCode::CONFLICT, &format!("มีคำขอ {} ที่ยังไม่จบอยู่แล้ว — ดำเนินการให้เสร็จหรือยกเลิกก่อน", r.get::<_, String>(0)));
     }
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
@@ -335,8 +353,8 @@ pub async fn create(Path(code): Path<String>, State(st): State<S>, Extension(u):
     let base_version: i64 = client.query_one("SELECT COALESCE(MAX(version),0) FROM versions WHERE doc_code=$1", &[&code])
         .await.map(|r| r.get(0)).unwrap_or(0);
     let from_rev = current_rev(&st, &client, &code).await;
-    let new_rev = b.newRev.take().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| bump_rev(&from_rev));
-    if let Err(r) = validate_rev(&new_rev, &from_rev) { return r; }
+    let new_rev = b.newRev.take().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| next_rev(&code, &from_rev));
+    if let Err(r) = validate_rev(&code, &new_rev, &from_rev) { return r; }
     if rev_used(&client, &code, &new_rev).await { return err(StatusCode::BAD_REQUEST, &format!("{new_rev} เคยใช้กับเอกสารนี้แล้ว")); }
 
     let year = eform::be_year_now();
@@ -352,7 +370,7 @@ pub async fn create(Path(code): Path<String>, State(st): State<S>, Extension(u):
     let now = now_iso();
     let row = client.query_one(
         &format!("INSERT INTO doc_changes(ref_no,doc_code,status,reason,note,from_rev,new_rev,filename,ext,stored_name,size,sha256,source,base_version,prepared_by,prepared_name,prepared_position,version,created_at,updated_at,closed_at)
-                  VALUES($1,$2,'review',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,0,$17,$17,'') RETURNING {DCOLS}"),
+                  VALUES($1,$2,'approve',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,0,$17,$17,'') RETURNING {DCOLS}"),
         &[&ref_no, &code, &reason, &note, &from_rev, &new_rev, &draft.filename, &draft.ext, &stored, &size, &sha, &draft.source, &base_version,
           &u.emp_code, &u.name, &u.position, &now],
     ).await;
@@ -387,10 +405,9 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
     let status = ch["status"].as_str().unwrap_or("").to_string();
     let can = can_flags(&u, &ch);
     let step = match status.as_str() {
-        "review" if can["review"] == json!(true) => "review",
         "approve" if can["approve"] == json!(true) => "approve",
-        "review" | "approve" => return err(StatusCode::FORBIDDEN, "ไม่มีสิทธิ์ในขั้นนี้ (ผู้จัดทำตรวจ/อนุมัติคำขอของตนเองไม่ได้)"),
-        _ => return err(StatusCode::BAD_REQUEST, "คำขอนี้ไม่ได้อยู่ในขั้นรอตรวจสอบ/อนุมัติ"),
+        "approve" => return err(StatusCode::FORBIDDEN, "ไม่มีสิทธิ์อนุมัติ (ผู้จัดทำอนุมัติคำขอของตนเองไม่ได้)"),
+        _ => return err(StatusCode::BAD_REQUEST, "คำขอนี้ไม่ได้อยู่ในขั้นรออนุมัติ"),
     };
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
 
@@ -405,7 +422,7 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
     }
 
     let now = now_iso();
-    let next = if !pass { "returned" } else if step == "review" { "approve" } else { "effective" };
+    let next = if pass { "effective" } else { "returned" };
     // เปลี่ยนสถานะแบบมีเงื่อนไข กันกดซ้ำ/สองคนอนุมัติพร้อมกัน
     let n = client.execute("UPDATE doc_changes SET status=$2,updated_at=$3 WHERE id=$1 AND status=$4", &[&id, &next, &now, &status]).await.unwrap_or(0);
     if n == 0 { return err(StatusCode::CONFLICT, "คำขอนี้ถูกดำเนินการไปแล้ว — โหลดหน้าใหม่"); }
@@ -463,7 +480,7 @@ pub async fn resubmit(Path(id): Path<i64>, State(st): State<S>, Extension(u): Ex
     let note = b.note.take().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ch["note"].as_str().unwrap_or("").to_string());
     let from_rev = ch["fromRev"].as_str().unwrap_or("").to_string();
     let new_rev = b.newRev.take().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| ch["newRev"].as_str().unwrap_or("").to_string());
-    if let Err(r) = validate_rev(&new_rev, &from_rev) { return r; }
+    if let Err(r) = validate_rev(&code, &new_rev, &from_rev) { return r; }
     if rev_used(&client, &code, &new_rev).await { return err(StatusCode::BAD_REQUEST, &format!("{new_rev} เคยใช้กับเอกสารนี้แล้ว")); }
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
 
@@ -484,7 +501,7 @@ pub async fn resubmit(Path(id): Path<i64>, State(st): State<S>, Extension(u): Ex
     }
     let now = now_iso();
     let n = client.execute(
-        "UPDATE doc_changes SET status='review',reason=$2,note=$3,new_rev=$4,filename=$5,ext=$6,stored_name=$7,size=$8,sha256=$9,source=$10,updated_at=$11
+        "UPDATE doc_changes SET status='approve',reason=$2,note=$3,new_rev=$4,filename=$5,ext=$6,stored_name=$7,size=$8,sha256=$9,source=$10,updated_at=$11
          WHERE id=$1 AND status='returned'",
         &[&id, &reason, &note, &new_rev, &filename, &ext, &stored_name, &size, &sha, &source, &now],
     ).await.unwrap_or(0);
@@ -506,7 +523,7 @@ pub async fn cancel(Path(id): Path<i64>, State(st): State<S>, Extension(u): Exte
     if can_flags(&u, &ch)["cancel"] != json!(true) { return err(StatusCode::FORBIDDEN, "ยกเลิกได้เฉพาะผู้จัดทำหรือผู้ดูแลระบบ ขณะคำขอยังไม่จบ"); }
     let now = now_iso();
     let n = client.execute(
-        "UPDATE doc_changes SET status='cancelled',updated_at=$2,closed_at=$2 WHERE id=$1 AND status IN ('review','approve','returned')", &[&id, &now],
+        "UPDATE doc_changes SET status='cancelled',updated_at=$2,closed_at=$2 WHERE id=$1 AND status IN ('approve','returned')", &[&id, &now],
     ).await.unwrap_or(0);
     if n == 0 { return err(StatusCode::CONFLICT, "คำขอนี้ถูกดำเนินการไปแล้ว — โหลดหน้าใหม่"); }
     add_step(&client, id, "cancel", "cancel", &u, &reason, "").await;
@@ -579,7 +596,7 @@ pub async fn obsolete(Path(code): Path<String>, State(st): State<S>, Extension(u
     let reason = b.reason.unwrap_or_default().trim().to_string();
     if reason.is_empty() { return err(StatusCode::BAD_REQUEST, "กรุณาระบุเหตุผลการยกเลิกใช้"); }
     let Ok(client) = st.db.get().await else { return db_err() };
-    if let Ok(Some(r)) = client.query_opt("SELECT ref_no FROM doc_changes WHERE doc_code=$1 AND status IN ('review','approve','returned')", &[&code]).await {
+    if let Ok(Some(r)) = client.query_opt("SELECT ref_no FROM doc_changes WHERE doc_code=$1 AND status IN ('approve','returned')", &[&code]).await {
         return err(StatusCode::CONFLICT, &format!("มีคำขอ {} ที่ยังไม่จบ — ยกเลิกคำขอก่อน", r.get::<_, String>(0)));
     }
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }

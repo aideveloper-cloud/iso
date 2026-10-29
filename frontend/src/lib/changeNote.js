@@ -68,7 +68,6 @@ export function fmtWhen(iso) {
 
 /** สถานะคำขอเปลี่ยนแปลงเอกสาร (DCR) */
 export const DCR_STATUS = {
-  review: 'รอตรวจสอบ',
   approve: 'รออนุมัติ',
   returned: 'ถูกตีกลับ',
   effective: 'มีผลบังคับใช้',
