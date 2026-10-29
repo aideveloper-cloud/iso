@@ -550,6 +550,10 @@
   .docx-page .atom { cursor: default; }
   .docframe { @apply w-full h-[66vh] rounded-lg; border: 1px solid #e3e7ee; }
   .pdfframe { @apply h-[78vh] bg-[#525659]; }
+  .pdfwrap { @apply flex flex-col gap-2; }
+  .pdfbar { @apply flex justify-end gap-2; }
+  .pdfwrap:fullscreen { @apply bg-[#525659] p-2; }
+  .pdfwrap:fullscreen .pdfframe { @apply flex-1 h-auto rounded-none border-0; }
   .docimg { @apply max-w-full rounded-lg; border: 1px solid #e3e7ee; }
   .nopreview { @apply text-center px-5 py-10 text-mut; }
   .nopreview .big { @apply text-[44px] mb-2; }

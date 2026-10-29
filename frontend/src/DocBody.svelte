@@ -60,6 +60,15 @@
   }
   onDestroy(() => { if (pdfSrc) URL.revokeObjectURL(pdfSrc) })
 
+  // ดูเต็มจอ — มือถือบางรุ่น (iOS) ไม่รองรับ จึงมีปุ่มเปิดในแท็บใหม่ด้วย
+  let pdfWrap
+  let full = false
+  const canFull = typeof document !== 'undefined' && !!document.documentElement.requestFullscreen
+  function toggleFull() {
+    if (document.fullscreenElement) document.exitFullscreen()
+    else pdfWrap?.requestFullscreen().catch(() => {})
+  }
+
   // ---------- Excel ----------
   let sheets = []
   let active = 0
@@ -222,9 +231,17 @@
   }
 </script>
 
+<svelte:document on:fullscreenchange={() => (full = !!document.fullscreenElement && document.fullscreenElement === pdfWrap)} />
+
 {#if wantPdf && pdfState !== 'fail'}
   {#if pdfState === 'ok'}
-    <iframe class="docframe pdfframe" src={pdfSrc + '#navpanes=0&view=FitH'} title={name}></iframe>
+    <div class="pdfwrap" bind:this={pdfWrap}>
+      <div class="pdfbar">
+        {#if canFull}<button class="mbtn gh inline-flex items-center gap-1.5" on:click={toggleFull}><Icon name={full ? 'x' : 'maximize'} size={14} /> {full ? 'ออกจากเต็มจอ' : 'เต็มจอ'}</button>{/if}
+        <a class="mbtn gh inline-flex items-center gap-1.5" href={pdfSrc} target="_blank" rel="noopener"><Icon name="eye" size={14} /> เปิดในแท็บใหม่</a>
+      </div>
+      <iframe class="docframe pdfframe" src={pdfSrc + '#navpanes=0&view=FitH'} title={name} allowfullscreen></iframe>
+    </div>
   {:else}
     <div class="loadwrap"><span class="spin"></span><p class="mnote">กำลังเตรียมเอกสารให้เหมือนต้นฉบับ…</p></div>
   {/if}
