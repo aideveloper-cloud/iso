@@ -11,7 +11,7 @@
 #  kgf-iso.sh status | logs [service] | rollback | restart
 # =============================================================
 set -euo pipefail
-SERVER=${KGF_SERVER:-server@192.168.1.15}
+SERVER=${KGF_SERVER:-server@192.168.1.10}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 HERE="$ROOT/deploy/kgf"
 DIR='~/server/apps/iso'

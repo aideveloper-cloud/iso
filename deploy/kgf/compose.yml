@@ -1,4 +1,4 @@
-# iso.kgarden.co.th บน ServerKG (192.168.1.15, Colima) — kgf-iso.sh ส่งไฟล์นี้ไปที่ ~/server/apps/iso/docker-compose.yml
+# iso.kgarden.co.th บน ServerKG (192.168.1.10, Colima) — kgf-iso.sh ส่งไฟล์นี้ไปที่ ~/server/apps/iso/docker-compose.yml
 # ฐานข้อมูลใช้ kgf-postgres กลาง (network kgf) · ค่าลับอยู่ใน .env บน server (DB_PASSWORD, ONLYOFFICE_JWT_SECRET)
 # ข้อมูลเอกสาร/เวอร์ชัน/backup, ฟอนต์ และ credentials ของ tunnel เก็บใน named volume (ไม่พึ่ง mount ของ Colima)
 name: iso
