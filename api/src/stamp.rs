@@ -80,10 +80,35 @@ fn deref_dict(doc: &Document, o: Option<&Object>) -> Dictionary {
     o.and_then(|o| doc.dereference(o).ok()).and_then(|(_, o)| o.as_dict().ok().cloned()).unwrap_or_default()
 }
 
+fn matrix_of(o: Option<&Object>) -> M {
+    let v: Vec<f32> = o.and_then(|o| o.as_array().ok()).map(|a| a.iter().filter_map(num).collect()).unwrap_or_default();
+    if v.len() == 6 { [v[0], v[1], v[2], v[3], v[4], v[5]] } else { [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] }
+}
+
+/// ลาย (Pattern) ของหน้าอ้างพิกัดของหน้าเสมอ ไม่ขยับตาม cm ที่ใช้ย่อเนื้อหา — ONLYOFFICE วาดรูปภาพ (เช่นโลโก้หัวกระดาษ) เป็นลาย
+/// ถ้าไม่ย่อลายตาม รูปจะเลื่อนออกจากกรอบแล้วถูกตัด → คัดลอกลายเป็นของหน้านั้นแล้วคูณ /Matrix ด้วยเมทริกซ์ย่อ
+fn shrink_patterns(doc: &mut Document, res: &mut Dictionary, m: &M) {
+    let pats = deref_dict(doc, res.get(b"Pattern").ok());
+    if pats.is_empty() { return; }
+    let mut out = Dictionary::new();
+    for (name, o) in pats.iter() {
+        let Ok((_, obj)) = doc.dereference(o) else { out.set(name.clone(), o.clone()); continue };
+        let mut obj = obj.clone();
+        let dict = match &mut obj { Object::Stream(s) => Some(&mut s.dict), Object::Dictionary(d) => Some(d), _ => None };
+        if let Some(d) = dict {
+            let pm = mul(&matrix_of(d.get(b"Matrix").ok()), m);
+            d.set("Matrix", Object::Array(pm.iter().map(|x| Object::Real(*x)).collect()));
+        }
+        out.set(name.clone(), Object::Reference(doc.add_object(obj)));
+    }
+    res.set("Pattern", Object::Dictionary(out));
+}
+
 /// ใส่ฟอนต์/ExtGState ของตราประทับลงใน Resources ของหน้า (คัดลอกเป็นของหน้านั้นเอง ไม่แตะหน้าอื่นที่ใช้ร่วมกัน)
-fn add_resources(doc: &mut Document, page: ObjectId, fonts: &[(&str, ObjectId)], gs: ObjectId) {
+fn add_resources(doc: &mut Document, page: ObjectId, fonts: &[(&str, ObjectId)], gs: ObjectId, content_m: &M) {
     let res_obj = inherited(doc, page, b"Resources");
     let mut res = res_obj.as_ref().and_then(|o| o.as_dict().ok().cloned()).unwrap_or_default();
+    shrink_patterns(doc, &mut res, content_m);
     let mut font = deref_dict(doc, res.get(b"Font").ok());
     for (name, id) in fonts { font.set(name.as_bytes().to_vec(), Object::Reference(*id)); }
     res.set("Font", Object::Dictionary(font));
@@ -177,7 +202,7 @@ pub fn apply(pdf: &[u8], s: &Stamp) -> Result<Vec<u8>, String> {
         let shrink: M = [k, 0.0, 0.0, k, vw * (1.0 - k) / 2.0, BAND];
         let content_m = mul(&mul(&inv(&v2u), &shrink), &v2u);
 
-        add_resources(&mut doc, page, &[("FisoR", reg), ("FisoB", bold)], gs);
+        add_resources(&mut doc, page, &[("FisoR", reg), ("FisoB", bold)], gs, &content_m);
 
         let pre = doc.add_object(Stream::new(dictionary! {}, format!("q\n{}", cm(&content_m)).into_bytes()));
         let mut post_stream = Stream::new(dictionary! {}, format!("\nQ\nq\n{}{}Q\n", cm(&v2u), stamp_ops(s, vw, vh, &qr)).into_bytes());
@@ -212,6 +237,18 @@ mod tests {
         let m = vis_to_user(90, 10.0, 20.0, 595.0, 842.0);
         let r = mul(&m, &inv(&m));
         for (a, b) in r.iter().zip([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]) { assert!((a - b).abs() < 1e-3); }
+    }
+
+    #[test]
+    fn page_patterns_follow_shrink() {
+        let mut doc = Document::new();
+        let pat = doc.add_object(dictionary! { "PatternType" => 1, "Matrix" => vec![Object::Real(2.0), 0.into(), 0.into(), Object::Real(2.0), 10.into(), 20.into()] });
+        let mut res = dictionary! { "Pattern" => dictionary! { "P1" => Object::Reference(pat) } };
+        shrink_patterns(&mut doc, &mut res, &[0.5, 0.0, 0.0, 0.5, 5.0, 48.0]);
+        let id = res.get(b"Pattern").unwrap().as_dict().unwrap().get(b"P1").unwrap().as_reference().unwrap();
+        assert_ne!(id, pat); // คัดลอกใหม่ ไม่แก้ลายที่หน้าอื่นใช้ร่วม
+        let m = matrix_of(doc.get_dictionary(id).unwrap().get(b"Matrix").ok());
+        assert_eq!(m, [1.0, 0.0, 0.0, 1.0, 10.0, 58.0]);
     }
 
     #[test]
