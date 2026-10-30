@@ -70,6 +70,12 @@ export const api = {
   copyClose: (id, result, note) => postJson(`/api/copies/${id}/close`, { result, note }),
   // ผู้ช่วย AI (OpenAI ฝั่งเซิร์ฟเวอร์) — เสนอแนะ ผู้ใช้เลือกทำตาม/ไม่ทำตามเอง · ดู aiassist.rs
   aiStatus: () => send('/api/ai/status').then((r) => r.json()),
+  aiChat: (chatId, message) => postJson('/api/ai/chat', { chatId, message }),
+  aiChats: () => send('/api/ai/chats').then((r) => r.json()),
+  aiChatGet: (id) => send(`/api/ai/chats/${id}`).then((r) => r.json()),
+  aiChatDelete: (id) => postJson(`/api/ai/chats/${id}`, {}, 'DELETE'),
+  aiIndex: () => send('/api/ai/index').then((r) => r.json()),
+  aiIndexNow: () => postJson('/api/ai/index', {}),
   aiLatest: (kind, subject) => send('/api/ai/reviews?' + new URLSearchParams({ kind, subject })).then((r) => r.json()),
   aiReviewDoc: (code) => postJson(`/api/ai/docs/${encodeURIComponent(code)}/review`, {}),
   aiReviewChange: (id) => postJson(`/api/ai/changes/${id}/review`, {}),

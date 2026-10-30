@@ -643,6 +643,30 @@
   .bell-item { @apply w-full flex items-start gap-2 px-3 py-2 text-left bg-white border-0 cursor-pointer font-sans text-ink; border-top: 1px solid #f1f3f6; }
   .bell-item:hover { background: #f3f6fb; }
   .bell-kind { @apply text-[10.5px] font-bold px-1.5 py-px rounded bg-brand-light text-brand whitespace-nowrap mt-0.5; }
+
+  /* แชทผู้ช่วย ISO (AiChat.svelte) */
+  .aic-fab { @apply fixed right-5 bottom-5 z-40 w-12 h-12 rounded-full bg-brand text-white flex items-center justify-center cursor-pointer border-0 shadow-lg; }
+  .aic-fab:hover { @apply bg-brand-600; }
+  .aic-panel { @apply fixed right-5 bottom-[84px] z-40 bg-white rounded-lg flex flex-col overflow-hidden shadow-xl; width: min(420px, calc(100vw - 32px)); height: min(620px, calc(100vh - 120px)); border: 1px solid #dfe4ec; }
+  .aic-head { @apply flex items-center gap-2 px-3 py-2 border-b border-line flex-wrap; }
+  .aic-msgs { @apply flex-1 overflow-y-auto py-3 flex flex-col gap-2 bg-canvas; }
+  .aic-msg { @apply flex flex-col px-3; }
+  .aic-msg.user { @apply items-end; }
+  .aic-bubble { @apply rounded-lg px-3 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words max-w-[90%] bg-white; border: 1px solid #e3e7ee; }
+  .aic-msg.user .aic-bubble { @apply bg-brand text-white border-brand; }
+  .aic-src { @apply flex flex-wrap gap-1 mt-1; }
+  .aic-code { @apply inline-block font-mono text-[11.5px] px-[6px] py-[1px] mx-[1px] rounded-sm bg-brand-light text-brand cursor-pointer border-0; }
+  .aic-code:hover { @apply bg-brand-pale; }
+  .aic-empty { @apply px-4 py-6 text-center text-mut text-[13px] flex flex-col items-center gap-2; }
+  .aic-ex { @apply text-[12.5px] px-3 py-[6px] rounded-full bg-white cursor-pointer text-ink; border: 1px solid #d5dbe5; }
+  .aic-ex:hover { @apply border-brand-600 text-brand; }
+  .aic-input { @apply flex items-end gap-2 p-2 border-t border-line; }
+  .aic-input textarea { @apply flex-1 resize-none rounded-md px-2 py-[6px] text-[13.5px] font-sans; border: 1px solid #d5dbe5; }
+  .aic-list { @apply flex-1 overflow-y-auto; }
+  .aic-li { @apply flex items-center gap-2 px-3 py-2 border-b border-line text-[13px]; }
+  .aic-li.cur { @apply bg-brand-light; }
+  .aic-li button { @apply bg-transparent border-0 cursor-pointer; }
+  @media print { .aic-fab, .aic-panel { display: none; } }
 }
 
 /* ---- responsive: sidebar becomes topbar on narrow screens ---- */

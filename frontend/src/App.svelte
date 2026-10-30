@@ -14,6 +14,7 @@
   import InternalAudit from './InternalAudit.svelte'
   import Acks from './Acks.svelte'
   import TrainingMatrix from './TrainingMatrix.svelte'
+  import AiChat from './AiChat.svelte'
   import Users from './Users.svelte'
   import Kpi from './Kpi.svelte'
   import Risks from './Risks.svelte'
@@ -45,6 +46,7 @@
   const JUMP_BASE = { type: '', dept: '', unreg: false, section: '', q: '' }
   let jump = { n: 0, ...JUMP_BASE }
   let me = null
+  let aiEnabled = false // แชทผู้ช่วย ISO แสดงเมื่อเซิร์ฟเวอร์ตั้ง OPENAI_API_KEY แล้ว
   let pending = 0
   let checkinToken = ''
   let verifyToken = '' // #v=<token> จาก QR บนกระดาษ — หน้าตรวจสถานะเอกสาร ไม่ต้อง login
@@ -88,6 +90,7 @@
     loadErr = ''
     try {
       await Promise.all([loadDocs(), api.overview().then((o) => (overview = o))])
+      api.aiStatus().then((a) => (aiEnabled = !!a?.enabled)).catch(() => {})
       loaded = true
     } catch (e) { loadErr = 'โหลดข้อมูลไม่สำเร็จ: ' + e.message }
   }
@@ -351,10 +354,11 @@
       {/if}
     </div>
 
-    <footer>ระบบควบคุมเอกสาร ISO 9001:2015 · v2 · หน้าเว็บ Svelte+Bun · API Rust · แปลงเอกสาร Go</footer>
+    <footer>ระบบควบคุมเอกสาร ISO 9001:2015 · v2 · หน้าเว็บ Svelte+Bun · API Rust · ONLYOFFICE</footer>
   </div>
 </div>
 
+{#if me && aiEnabled}<AiChat {docs} on:open={open} />{/if}
 {#if openDoc}
   {#key openDoc.code}
     <DocViewer doc={openDoc} {me} initialChange={openChangeId} on:close={closeDoc} on:saved={onSaved} on:eform={onEform} />

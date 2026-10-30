@@ -54,9 +54,9 @@ const PER_HOUR: i64 = 30;
 const MAX_SUGGESTIONS: usize = 15;
 const DEFAULT_MODEL: &str = "gpt-4.1-mini";
 
-struct Cfg { key: String, model: String, base: String }
+pub(crate) struct Cfg { pub(crate) key: String, pub(crate) model: String, pub(crate) base: String }
 
-fn cfg() -> Option<Cfg> {
+pub(crate) fn cfg() -> Option<Cfg> {
     let key = std::env::var("OPENAI_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty())?;
     let model = std::env::var("OPENAI_MODEL").ok().map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).unwrap_or_else(|| DEFAULT_MODEL.into());
     let base = std::env::var("OPENAI_BASE_URL").ok().map(|b| b.trim().trim_end_matches('/').to_string()).filter(|b| !b.is_empty())
@@ -144,7 +144,7 @@ const SYSTEM_DCR: &str = "คุณคือผู้ช่วยผู้อน
 // ---------- ข้อมูลประกอบ ----------
 
 /// ข้อมูลทะเบียนของเอกสาร + เอกสารที่อ้างถึง + ข้อกำหนด ISO + ผลตรวจ Rev. ในไฟล์
-async fn register_context(st: &S, code: &str, text: &str) -> String {
+pub(crate) async fn register_context(st: &S, code: &str, text: &str) -> String {
     let ctl = doccontrol::control_map(st).await;
     let info = |c: &str| -> Option<Value> { st.by_code.get(c).map(|d| { let mut o = d.clone(); ctl.apply(c, &mut o); o }) };
     let mut out = String::new();

@@ -17,6 +17,7 @@ use std::{collections::HashMap, fs, path::PathBuf, sync::{Arc, Mutex}, time::Dur
 use tokio_postgres::NoTls;
 
 mod acks;
+mod aichat;
 mod aiassist;
 mod audittrail;
 mod calibration;
@@ -201,6 +202,7 @@ async fn init_db(pool: &Pool) {
                 client.batch_execute(notify::SCHEMA).await.expect("ปรับตารางการแจ้งเตือนไม่สำเร็จ");
                 client.batch_execute(revcontrol::SCHEMA).await.expect("สร้างตารางสำเนาเอกสารไม่สำเร็จ");
                 client.batch_execute(aiassist::SCHEMA).await.expect("สร้างตารางผู้ช่วย AI ไม่สำเร็จ");
+                client.batch_execute(aichat::SCHEMA).await.expect("สร้างตารางแชท AI ไม่สำเร็จ");
                 return;
             }
             Err(e) => {
@@ -790,6 +792,7 @@ async fn main() {
         });
     }
     tokio::spawn(notify::digest_loop(state.clone()));
+    tokio::spawn(aichat::index_loop(state.clone()));
 
     let app = Router::new()
         .route("/api/health", get(health))
@@ -815,6 +818,10 @@ async fn main() {
         .route("/api/copies/:id/close", axum::routing::post(revcontrol::close))
         .route("/api/revcontrol", get(revcontrol::report))
         .route("/api/ai/status", get(aiassist::status))
+        .route("/api/ai/chat", axum::routing::post(aichat::chat))
+        .route("/api/ai/chats", get(aichat::chats))
+        .route("/api/ai/chats/:id", get(aichat::chat_get).delete(aichat::chat_delete))
+        .route("/api/ai/index", get(aichat::index_status).post(aichat::index_now))
         .route("/api/ai/reviews", get(aiassist::latest))
         .route("/api/ai/reviews/:id/apply", axum::routing::post(aiassist::apply))
         .route("/api/ai/docs/:code/review", axum::routing::post(aiassist::review_doc))

@@ -453,6 +453,7 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
                 let _ = client.execute("UPDATE doc_changes SET version=$2,closed_at=$3 WHERE id=$1", &[&id, &version, &now]).await;
                 // แจกจ่าย Rev. ใหม่: ส่งคำขอรับทราบให้ทุกคนในรายชื่อ (7.5.3)
                 crate::acks::on_effective(&st, &client, &code, version, ch["newRev"].as_str().unwrap_or(""), &u.name).await;
+                crate::aichat::reindex_soon(&st);
                 // สำเนาที่พิมพ์/ดาวน์โหลดของฉบับเก่าต้องเรียกคืน (7.5.3.2 d)
                 crate::revcontrol::on_effective(&client, &code, version, ch["newRev"].as_str().unwrap_or("")).await;
             }
