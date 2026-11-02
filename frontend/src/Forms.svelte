@@ -9,7 +9,7 @@
   export let me = null
 
   const STATUS = {
-    draft: 'ร่าง', review: 'รอตรวจสอบ', approve: 'รออนุมัติ', approved: 'อนุมัติแล้ว',
+    draft: 'ร่าง', approve: 'รออนุมัติ', approved: 'อนุมัติแล้ว',
     returned: 'ตีกลับ', cancelled: 'ยกเลิก', imported: 'นำเข้าจากเอกสารเดิม', superseded: 'ถูกแทนที่',
   }
   const MONTHS = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
@@ -169,9 +169,25 @@
     err = ''
     await save(true)
     const { ok, body } = await api.formSubmit(rec.id)
-    if (!ok) { err = body.error || 'ส่งไม่สำเร็จ'; return }
+    if (!ok) {
+      const m = body.error || 'ส่งไม่สำเร็จ'
+      // แบบฟอร์มออก Rev. ใหม่ระหว่างกรอก — โหลดใบใหม่ให้เห็นแถบย้ายฉบับ
+      if (body.staleForm) await openId(rec.id)
+      err = m
+      return
+    }
     openRec(body)
     msg = 'ส่งอนุมัติแล้ว ' + body.refNo
+  }
+
+  /** ย้ายร่างไปแบบฟอร์มฉบับใช้งานปัจจุบัน (ข้อมูลที่กรอกคงเดิม) */
+  async function upgradeRec() {
+    err = ''
+    await save(true)
+    const { ok, body } = await api.formUpgrade(rec.id)
+    if (!ok) { err = body.error || 'ย้ายฉบับไม่สำเร็จ'; return }
+    await openRec(body)
+    msg = `ย้ายไปแบบฟอร์ม ${body.formRev} แล้ว — ตรวจข้อมูลแล้วจึงส่ง`
   }
 
   async function act(action) {
@@ -354,6 +370,13 @@
     {#if rec.status === 'returned'}
       <div class="merr">ตีกลับ: {rec.steps?.filter((s) => s.action === 'return').slice(-1)[0]?.comment || ''}</div>
     {/if}
+    {#if rec.staleForm}
+      <div class="ver-warn">
+        <Icon name="alert-triangle" size={16} />
+        <span>ใบนี้กรอกบนแบบฟอร์ม <b>{rec.formRev}</b> แต่ฉบับใช้งานปัจจุบันคือ <b>{rec.currentFormRev}</b> — ส่งอนุมัติไม่ได้จนกว่าจะย้ายไปฉบับปัจจุบัน (ข้อมูลที่กรอกไว้ยังอยู่ ตรวจช่องที่เปลี่ยนแล้วจึงส่ง)</span>
+        {#if editable()}<button class="vw-btn" on:click={upgradeRec}>ย้ายไป {rec.currentFormRev}</button>{/if}
+      </div>
+    {/if}
 
     {#if schema}
       <div class="ef-paper">
@@ -483,7 +506,7 @@
         {#if editable()}<button class="mbtn gh mt-2" on:click={() => fileInput.click()}>แนบไฟล์</button><input bind:this={fileInput} type="file" class="hidden" on:change={onFile} />{/if}
       </section>
 
-      {#if rec.checkinUrl && editable() || (rec.status === 'review' || rec.status === 'approve' || rec.status === 'approved')}
+      {#if rec.checkinUrl && editable() || (rec.status === 'approve' || rec.status === 'approved')}
         <section class="ef-card">
           <h4><Icon name="layout-grid" size={14} /> QR เช็คอินผู้เข้าอบรม</h4>
           <div class="w-32">{@html rec.checkinQr || ''}</div>
@@ -511,9 +534,9 @@
         <button class="mbtn gh" on:click={() => save(false)}>บันทึกร่าง</button>
         <button class="mbtn accent" on:click={submitRec}>ส่งอนุมัติ</button>
       {/if}
-      {#if (rec.status === 'review' && me.role !== 'preparer' && me.role !== 'viewer' && (isAdmin() || rec.preparedBy !== me.empCode)) || (rec.status === 'approve' && (me.role === 'approver' || isAdmin()) && (isAdmin() || rec.preparedBy !== me.empCode))}
+      {#if rec.status === 'approve' && (me.role === 'approver' || isAdmin()) && (isAdmin() || rec.preparedBy !== me.empCode)}
         <input class="ef-in max-w-[360px]" placeholder="ความเห็น / เหตุผลตีกลับ" bind:value={reason} />
-        <button class="mbtn accent" on:click={() => act('pass')}>{rec.status === 'review' ? 'ตรวจผ่าน' : 'อนุมัติ'}</button>
+        <button class="mbtn accent" on:click={() => act('pass')}>อนุมัติ</button>
         <button class="mbtn danger" on:click={() => act('return')}>ตีกลับ</button>
       {/if}
       {#if rec.status === 'approved' && (isAdmin() || rec.preparedBy === me.empCode)}

@@ -52,7 +52,7 @@
       {#if cur.docs.length}
         <div class="overflow-auto">
           <table class="chg-table">
-            <thead><tr><th>รหัส</th><th>ชื่อเอกสาร</th><th>Rev.</th><th>บังคับใช้</th><th>สถานะ</th></tr></thead>
+            <thead><tr><th>รหัส</th><th>ชื่อเอกสาร</th><th>ฉบับ</th><th>บังคับใช้</th><th>สถานะ</th></tr></thead>
             <tbody>
               {#each cur.docs as d}
                 <tr class="clickrow" on:click={() => d.name && dispatch('open', d.code)}>

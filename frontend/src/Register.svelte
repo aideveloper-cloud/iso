@@ -102,7 +102,7 @@
           <th on:click={() => sortBy('name')}>ชื่อเอกสาร</th>
           {#if groupBy !== 'type'}<th on:click={() => sortBy('type')}>ประเภท</th>{/if}
           {#if groupBy !== 'dept'}<th on:click={() => sortBy('deptName')}>แผนก</th>{/if}
-          <th on:click={() => sortBy('rev')}>Rev.</th>
+          <th on:click={() => sortBy('rev')}>ฉบับ</th>
           <th on:click={() => sortBy('eff')}>บังคับใช้</th>
           <th>ไฟล์</th>
         </tr></thead>
@@ -114,7 +114,7 @@
               {#if groupBy !== 'type'}<td><span class="tag {d.type}" title="กรองตามประเภท {d.type}" on:click|stopPropagation={() => (activeType = d.type)}>{d.type}</span></td>{/if}
               {#if groupBy !== 'dept'}<td class="dept-cell" title="กรองตามแผนก" on:click|stopPropagation={() => (fd = d.dept)}>{d.deptName}</td>{/if}
               <td>{d.rev}</td><td>{d.eff}</td>
-              <td><button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openDoc(d.code)} title={d.file}><Icon name="eye" size={14} /> เปิดดู</button>{#if d.versionCount > 1}<span class="verpill" title="มี {d.versionCount} เวอร์ชัน">v{d.latestVersion}</span>{#if d.lastAt}<div class="ver-last">อัปเดต {fmtWhen(d.lastAt)}<br />โดย {d.lastBy}</div>{/if}{/if}</td>
+              <td><button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openDoc(d.code)} title={d.file}><Icon name="eye" size={14} /> เปิดดู</button>{#if d.versionCount > 1}<span class="verpill" title="มี {d.versionCount} เวอร์ชัน">#{d.latestVersion}</span>{#if d.lastAt}<div class="ver-last">อัปเดต {fmtWhen(d.lastAt)}<br />โดย {d.lastBy}</div>{/if}{/if}</td>
             </tr>
           {/each}
         </tbody>

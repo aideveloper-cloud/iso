@@ -316,7 +316,6 @@
   .merr { @apply text-danger rounded-lg px-3 py-[9px] text-[13px] mb-[10px] flex items-center gap-[10px] flex-wrap; background: #fdeaea; border: 1px solid #f1c2c2; }
   .merr .retry { @apply ml-auto bg-white text-danger rounded-md px-3 py-[5px] font-sans text-[12.5px] font-bold cursor-pointer; border: 1px solid theme(colors.danger.DEFAULT); }
   .merr .retry:hover { @apply bg-danger text-white; }
-  .edhint { @apply rounded-lg px-3 py-2 text-[12.5px] mb-[10px]; background: #fff7e6; border: 1px solid #f0d9a8; color: #9a6500; }
   .save-ok { @apply rounded-lg px-3 py-2 text-[13px] mb-3 font-semibold; background: #e7f7ec; border: 1px solid #b7e4c4; color: #1b7a3a; }
   .file-tools { @apply rounded-xl border border-line bg-[#f7fafc] p-3 mb-3; }
   .ft-head { @apply flex items-baseline gap-2 flex-wrap mb-2; }
@@ -400,7 +399,7 @@
   @media (max-width: 800px) { .cl-wrap { grid-template-columns: 1fr; } .cl-list { max-height: 260px; } }
   /* ทบทวนฝ่ายบริหาร (ต่อยอดจาก management-review-dashboard ในธีม KO) */
   .status-badge.mr-draft { background: #eef1f6; color: theme(colors.mut); }
-  .status-badge.mr-review, .status-badge.mr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .status-badge.mr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
   .status-badge.mr-monitoring { background: #e6ecf6; color: theme(colors.brand.DEFAULT); }
   .status-badge.mr-closed { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
   .status-badge.mr-superseded { background: #eef1f6; color: theme(colors.faint); text-decoration: line-through; }
@@ -425,7 +424,6 @@
   .mr-people button:hover { background: #f1f6fc; }
   .role-pill { @apply text-[11px] font-bold px-[8px] py-[2px] rounded-[20px] whitespace-nowrap; background: #eef1f6; color: theme(colors.mut); }
   .role-pill.r-preparer { background: #e6ecf6; color: theme(colors.brand.DEFAULT); }
-  .role-pill.r-reviewer { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
   .role-pill.r-approver { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
   .role-pill.r-admin { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
   .perm-table td:first-child { min-width: 320px; }
@@ -496,7 +494,7 @@
   .ia-res.on { border-color: currentColor; box-shadow: 0 0 0 2px rgba(11,54,121,.15); }
   button.ia-res:disabled { @apply opacity-40 cursor-not-allowed; }
   /* คำขอเปลี่ยนแปลงเอกสาร (DCR) */
-  .status-badge.dcr-review, .status-badge.dcr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
+  .status-badge.dcr-approve { background: theme(colors.warn.bg); color: theme(colors.warn.DEFAULT); }
   .status-badge.dcr-returned { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
   .status-badge.dcr-effective { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
   .status-badge.dcr-cancelled { background: #eef1f5; color: theme(colors.mut); }
@@ -516,41 +514,12 @@
   .chg-table tr.cur { background: #eef7ff; }
   .chg-table .nowrap { @apply whitespace-nowrap; }
   .chg-table .mbtn { @apply text-[11px] px-2 py-1 mr-1 mb-1; }
-  .sheettabs { @apply flex gap-1 flex-wrap mb-[10px]; }
-  .sheettabs button { @apply font-sans text-[12px] px-[11px] py-[5px] bg-white rounded-md cursor-pointer; border: 1px solid #cdd4df; }
-  .sheettabs button.active { @apply bg-brand-600 text-white; border-color: theme(colors.brand.600); }
-  .sheetwrap { @apply overflow-auto rounded-lg max-h-[60vh]; border: 1px solid #e3e7ee; }
-  table.sheet { @apply border-collapse text-[12.5px] w-auto min-w-full; }
-  table.sheet th, table.sheet td { @apply p-0 whitespace-nowrap; border: 1px solid #e6e9f0; }
-  table.sheet th.rn { @apply text-mut text-center min-w-[34px] px-[6px] py-1 static; background: #f0f3f8; }
-  table.sheet td { @apply min-w-[90px]; }
-  table.sheet td span { @apply block px-2 py-[6px]; }
-  table.sheet td input { @apply w-full min-w-[120px] border-none px-2 py-[6px] font-sans text-[12.5px]; background: #fffdf3; }
-  table.sheet td input:focus { @apply bg-white; outline: 2px solid theme(colors.brand.600); outline-offset: -2px; }
-  .dochtml { @apply text-[14px] leading-[1.7] bg-white rounded-lg px-[22px] py-[18px] max-h-[64vh] overflow-auto; border: 1px solid #e3e7ee; }
-  .dochtml.rte { @apply outline-none; background: #fffdf3; }
-  .dochtml.rte:focus { @apply bg-white; outline: 2px solid theme(colors.brand.600); outline-offset: -2px; }
-  .rte-toolbar { @apply flex items-center gap-1 flex-wrap mb-2 p-[6px] rounded-lg; background: #eef1f6; }
-  .rte-toolbar button { @apply bg-white border border-line rounded-md px-[10px] py-[5px] text-[13px] cursor-pointer text-ink min-w-[32px]; }
-  .rte-toolbar button:hover { @apply bg-brand-light text-brand border-brand-600; }
-  .rte-sep { @apply w-px h-5 mx-1; background: #cdd4df; }
-  .dochtml table { @apply border-collapse; } .dochtml td, .dochtml th { @apply px-2 py-1; border: 1px solid #ccc; }
-  /* เอกสาร Word ที่แปลงมาให้คงรูปแบบเดิม (converter/docx.go) */
-  .dochtml:has(.docx-page) { background: #e9edf3; padding: 14px; }
-  .dochtml.rte:has(.docx-page) { background: #e9edf3; }
-  .docx-page { @apply bg-white mx-auto relative text-black; box-sizing: border-box; box-shadow: 0 1px 6px rgba(20,30,60,.18); line-height: 1.2; }
-  .docx-page div.p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1em; }
-  .docx-page table.docx-tbl { border-collapse: collapse; table-layout: fixed; }
-  .docx-page table.docx-tbl td { padding: 1px 6px; border: 0; overflow-wrap: anywhere; }
-  .docx-page img { display: inline-block; vertical-align: middle; }
-  .docx-page .tab { display: inline-block; white-space: pre; }
-  .docx-page .txbx { display: inline-block; vertical-align: top; max-width: 100%; border: 1px dashed #c3cad6; }
-  .docx-page .pgbrk { display: block; text-align: center; font: 11px/1.4 sans-serif; color: #98a2b3; border-top: 1px dashed #c3cad6; margin: 6px 0; }
-  .docx-page .docx-hdr { padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px dotted #d5dae3; }
-  .docx-page .docx-ftr { padding-top: 6px; margin-top: 8px; border-top: 1px dotted #d5dae3; }
-  .docx-page .atom { cursor: default; }
   .docframe { @apply w-full h-[66vh] rounded-lg; border: 1px solid #e3e7ee; }
   .pdfframe { @apply h-[78vh] bg-[#525659]; }
+  .pdfwrap { @apply flex flex-col gap-2; }
+  .pdfbar { @apply flex justify-end gap-2; }
+  .pdfwrap:fullscreen { @apply bg-[#525659] p-2; }
+  .pdfwrap:fullscreen .pdfframe { @apply flex-1 h-auto rounded-none border-0; }
   .docimg { @apply max-w-full rounded-lg; border: 1px solid #e3e7ee; }
   .nopreview { @apply text-center px-5 py-10 text-mut; }
   .nopreview .big { @apply text-[44px] mb-2; }
@@ -610,6 +579,94 @@
   .ov-ic { @apply text-[20px] flex-shrink-0; }
   .ov-name { @apply flex-1 text-[13.5px] min-w-0 break-words; }
   .ov-btns { @apply flex gap-[7px] flex-shrink-0; }
+
+  /* ---- วัตถุประสงค์คุณภาพ (Kpi.svelte) ---- */
+  .kpi-table td { vertical-align: middle; }
+  .fill-ok { fill: theme(colors.ok.DEFAULT); }
+  .fill-danger { fill: theme(colors.danger.DEFAULT); }
+
+  /* ---- ความเสี่ยงและโอกาส (Risks.svelte) ---- */
+  .heat { display: grid; grid-template-columns: 18px repeat(5, 40px); gap: 3px; }
+  .heat-lab { @apply text-[11px] text-mut flex items-center justify-center; }
+  .heat-axis-y { @apply text-[11.5px] text-mut text-center; writing-mode: vertical-rl; transform: rotate(180deg); }
+  .heat-cell { @apply h-10 rounded font-bold text-[14px] text-ink border-0 cursor-pointer; transition: transform .1s; }
+  .heat-cell:hover { transform: scale(1.06); }
+  .heat-cell.sel { outline: 2px solid theme(colors.brand.DEFAULT); outline-offset: 1px; }
+  .h-high { background: #f8c9c4; }
+  .h-medium { background: #fde7b0; }
+  .h-low { background: #cfeed8; }
+  .heat-dot { @apply inline-block w-2.5 h-2.5 rounded-sm align-middle; }
+  .lvl-badge { @apply text-[11px] font-bold px-2 py-px rounded-[20px] text-ink whitespace-nowrap; }
+
+  /* ---- เครื่องมือวัดและสอบเทียบ (Calibration.svelte) · ผู้ขาย (Suppliers.svelte) ---- */
+  .stat-row { @apply grid gap-3 mb-4; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .seg { @apply inline-flex rounded-lg overflow-hidden border border-line bg-white; }
+  .seg button { @apply px-3 py-[6px] text-[13px] font-sans text-ink bg-white border-0 cursor-pointer; border-right: 1px solid theme(colors.line); }
+  .seg button:last-child { border-right: 0; }
+  .seg button:hover { background: #f5f8fd; }
+  .seg button.on { @apply font-bold text-white; background: theme(colors.brand.DEFAULT); }
+  .seg button.on.r-pass, .seg button.on.i-none { background: theme(colors.ok.DEFAULT); }
+  .seg button.on.r-fail, .seg button.on.i-affected { background: theme(colors.danger.DEFAULT); }
+  .seg button.on.sc-1 { background: theme(colors.danger.DEFAULT); }
+  .seg button.on.sc-2 { background: #d9822b; }
+  .seg button.on.sc-3 { background: theme(colors.warn.DEFAULT); }
+  .seg button.on.sc-4 { background: #4f9d69; }
+  .seg button.on.sc-5 { background: theme(colors.ok.DEFAULT); }
+  .res-badge { @apply text-[11px] font-bold px-2 py-px rounded-[20px] whitespace-nowrap; }
+  .res-badge.r-pass { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  .res-badge.r-fail { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
+  .grade-badge { @apply inline-flex items-center justify-center w-[22px] h-[22px] rounded-full text-[12px] font-bold text-white align-middle; }
+  .grade-badge.g-A { background: theme(colors.ok.DEFAULT); }
+  .grade-badge.g-B { background: #4f9d69; }
+  .grade-badge.g-C { background: theme(colors.warn.DEFAULT); }
+  .grade-badge.g-D { background: theme(colors.danger.DEFAULT); }
+  .sev-grid { @apply flex flex-col gap-2 my-2; }
+  .sev-row { @apply grid items-center gap-3; grid-template-columns: 1fr auto auto; }
+  .sev-total { @apply text-[13.5px] my-3 px-3 py-2 rounded-lg; background: #f5f8fd; }
+  .sc-dot { @apply inline-flex items-center justify-center w-6 h-6 rounded-full text-[12px] font-bold; background: #eef1f6; }
+  .sc-dot.sc-1 { background: theme(colors.danger.bg); color: theme(colors.danger.DEFAULT); }
+  .sc-dot.sc-2 { background: #fbe9d7; color: #b25f14; }
+  .sc-dot.sc-4, .sc-dot.sc-5 { background: theme(colors.ok.bg); color: theme(colors.ok.DEFAULT); }
+  @media (max-width: 640px) { .sev-row { grid-template-columns: 1fr; gap: 4px; } }
+
+  /* ---- งานของฉัน (Inbox.svelte) ---- */
+  .bell { @apply relative inline-flex items-center justify-center w-9 h-9 rounded-full bg-white text-brand cursor-pointer; border: 1px solid theme(colors.line); }
+  .bell:hover { @apply border-brand-600; }
+  .bell.hot { @apply text-danger; }
+  .bell-n { @apply absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-white text-[10.5px] font-bold flex items-center justify-center; }
+  .bell-bg { @apply fixed inset-0 z-40; }
+  .bell-panel { @apply fixed right-4 top-16 z-50 w-[420px] max-w-[calc(100vw-24px)] bg-white rounded-lg border border-line overflow-hidden text-ink; box-shadow: 0 12px 40px rgba(0,0,0,.18); }
+  .bell-list { @apply max-h-[60vh] overflow-y-auto; }
+  .bell-sec { @apply px-3 pt-2 pb-1 text-[11.5px] font-bold text-mut; }
+  .bell-sec.l-overdue { @apply text-danger; }
+  .bell-sec.l-soon { @apply text-warn; }
+  .bell-item { @apply w-full flex items-start gap-2 px-3 py-2 text-left bg-white border-0 cursor-pointer font-sans text-ink; border-top: 1px solid #f1f3f6; }
+  .bell-item:hover { background: #f3f6fb; }
+  .bell-kind { @apply text-[10.5px] font-bold px-1.5 py-px rounded bg-brand-light text-brand whitespace-nowrap mt-0.5; }
+
+  /* แชทผู้ช่วย ISO (AiChat.svelte) */
+  .aic-fab { @apply fixed right-5 bottom-5 z-40 w-12 h-12 rounded-full bg-brand text-white flex items-center justify-center cursor-pointer border-0 shadow-lg; }
+  .aic-fab:hover { @apply bg-brand-600; }
+  .aic-panel { @apply fixed right-5 bottom-[84px] z-40 bg-white rounded-lg flex flex-col overflow-hidden shadow-xl; width: min(420px, calc(100vw - 32px)); height: min(620px, calc(100vh - 120px)); border: 1px solid #dfe4ec; }
+  .aic-head { @apply flex items-center gap-2 px-3 py-2 border-b border-line flex-wrap; }
+  .aic-msgs { @apply flex-1 overflow-y-auto py-3 flex flex-col gap-2 bg-canvas; }
+  .aic-msg { @apply flex flex-col px-3; }
+  .aic-msg.user { @apply items-end; }
+  .aic-bubble { @apply rounded-lg px-3 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words max-w-[90%] bg-white; border: 1px solid #e3e7ee; }
+  .aic-msg.user .aic-bubble { @apply bg-brand text-white border-brand; }
+  .aic-src { @apply flex flex-wrap gap-1 mt-1; }
+  .aic-code { @apply inline-block font-mono text-[11.5px] px-[6px] py-[1px] mx-[1px] rounded-sm bg-brand-light text-brand cursor-pointer border-0; }
+  .aic-code:hover { @apply bg-brand-pale; }
+  .aic-empty { @apply px-4 py-6 text-center text-mut text-[13px] flex flex-col items-center gap-2; }
+  .aic-ex { @apply text-[12.5px] px-3 py-[6px] rounded-full bg-white cursor-pointer text-ink; border: 1px solid #d5dbe5; }
+  .aic-ex:hover { @apply border-brand-600 text-brand; }
+  .aic-input { @apply flex items-end gap-2 p-2 border-t border-line; }
+  .aic-input textarea { @apply flex-1 resize-none rounded-md px-2 py-[6px] text-[13.5px] font-sans; border: 1px solid #d5dbe5; }
+  .aic-list { @apply flex-1 overflow-y-auto; }
+  .aic-li { @apply flex items-center gap-2 px-3 py-2 border-b border-line text-[13px]; }
+  .aic-li.cur { @apply bg-brand-light; }
+  .aic-li button { @apply bg-transparent border-0 cursor-pointer; }
+  @media print { .aic-fab, .aic-panel { display: none; } }
 }
 
 /* ---- responsive: sidebar becomes topbar on narrow screens ---- */

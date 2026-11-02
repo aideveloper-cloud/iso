@@ -1,5 +1,5 @@
 <script>
-  // การรับทราบเอกสาร (7.5.3, 7.3) — ของฉัน: เอกสารที่ต้องอ่านและรับทราบ · ภาพรวม (ผู้ตรวจสอบขึ้นไป): อัตรารับทราบ เลยกำหนด ส่งคำขอทีละหลายฉบับ
+  // การรับทราบเอกสาร (7.5.3, 7.3) — ของฉัน: เอกสารที่ต้องอ่านและรับทราบ · ภาพรวม (ผู้อนุมัติขึ้นไป): อัตรารับทราบ เลยกำหนด ส่งคำขอทีละหลายฉบับ
   import { onMount, createEventDispatcher } from 'svelte'
   import { api } from './lib/api.js'
   import { DEPTS, DEPTNAME } from './lib/const.js'
@@ -11,7 +11,7 @@
   export let refresh = 0
   const dispatch = createEventDispatcher()
 
-  const reviewer = () => ['reviewer', 'approver', 'admin'].includes(me?.role)
+  const approver = () => ['approver', 'admin'].includes(me?.role)
   let view = 'mine', mine = [], ov = null, err = '', msg = '', filter = 'pending', busy = false
   let bulkType = '', bulkDept = ''
 
@@ -19,7 +19,7 @@
     err = ''
     try {
       mine = await api.acksMine()
-      if (reviewer()) ov = await api.acksOverview()
+      if (approver()) ov = await api.acksOverview()
     } catch (e) { err = 'โหลดไม่สำเร็จ: ' + e.message }
   }
   onMount(load)
@@ -41,7 +41,7 @@
   }
   function exportCsv() {
     const cell = (v) => { let x = String(v ?? ''); if (/^[\s]*[=+\-@\t\r]/.test(x)) x = "'" + x; return '"' + x.replace(/"/g, '""') + '"' }
-    const rows = [['เอกสาร', 'ชื่อเอกสาร', 'Rev.', 'พนักงาน', 'รหัส', 'แผนก', 'สถานะ', 'ครบกำหนด', 'เปิดอ่าน', 'รับทราบ'],
+    const rows = [['เอกสาร', 'ชื่อเอกสาร', 'ฉบับ', 'พนักงาน', 'รหัส', 'แผนก', 'สถานะ', 'ครบกำหนด', 'เปิดอ่าน', 'รับทราบ'],
       ...ov.acks.map((a) => [a.docCode, a.docName, a.rev, a.empName, a.empCode, a.dept, a.overdue ? 'เลยกำหนด' : a.status === 'acknowledged' ? 'รับทราบแล้ว' : 'รอรับทราบ', a.dueDate, a.openedAt ? fmtWhen(a.openedAt) : '', a.ackedAt ? fmtWhen(a.ackedAt) : ''])]
     const url = URL.createObjectURL(new Blob(['﻿' + rows.map((r) => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }))
     const el = document.createElement('a'); el.href = url; el.download = 'document-acknowledgement.csv'; el.click()
@@ -51,10 +51,10 @@
 
 <div class="cat-head">
   <h2 class="cat-title inline-flex items-center gap-2"><Icon name="clipboard-check" size={20} /> การรับทราบเอกสาร</h2>
-  <p class="cat-desc">ISO 9001:2015 ข้อ 7.5.3 / 7.3 — เมื่อเอกสารออก Rev. ใหม่ ผู้เกี่ยวข้องต้องเปิดอ่านและลงนาม “อ่านและเข้าใจแล้ว” ด้วย PIN · บันทึกเป็นหลักฐานในประวัติการอบรม</p>
+  <p class="cat-desc">ISO 9001:2015 ข้อ 7.5.3 / 7.3 — เมื่อเอกสารออกฉบับใหม่ ผู้เกี่ยวข้องต้องเปิดอ่านและลงนาม “อ่านและเข้าใจแล้ว” ด้วย PIN · บันทึกเป็นหลักฐานในประวัติการอบรม</p>
 </div>
 
-{#if reviewer()}
+{#if approver()}
   <div class="subtabs">
     <button class="st-btn {view === 'mine' ? 'active' : ''}" on:click={() => (view = 'mine')}>ของฉัน <span class="st-n">{pending.length}</span></button>
     <button class="st-btn {view === 'all' ? 'active' : ''}" on:click={() => (view = 'all')}>ภาพรวมทั้งบริษัท</button>
@@ -80,7 +80,7 @@
   {/if}
   {#if history.length}
     <h3 class="rd-sub">ประวัติการรับทราบของฉัน</h3>
-    <table class="chg-table"><thead><tr><th>เอกสาร</th><th>Rev.</th><th>สถานะ</th><th>รับทราบเมื่อ</th></tr></thead>
+    <table class="chg-table"><thead><tr><th>เอกสาร</th><th>ฉบับ</th><th>สถานะ</th><th>รับทราบเมื่อ</th></tr></thead>
       <tbody>{#each history as a}<tr><td><b>{a.docCode}</b> {a.docName}</td><td>{a.rev}</td><td>{a.status === 'acknowledged' ? 'รับทราบแล้ว' : 'ถูกแทนที่ด้วยฉบับใหม่'}</td><td class="nowrap">{a.ackedAt ? fmtWhen(a.ackedAt) : '—'}</td></tr>{/each}</tbody></table>
   {/if}
 {:else if ov}
@@ -104,7 +104,7 @@
   {#if ov.docs.length}
     <div class="sec !p-0 overflow-auto mb-3">
       <table>
-        <thead><tr><th>เอกสาร</th><th>Rev.</th><th>รับทราบ</th><th>เลยกำหนด</th><th>ความคืบหน้า</th></tr></thead>
+        <thead><tr><th>เอกสาร</th><th>ฉบับ</th><th>รับทราบ</th><th>เลยกำหนด</th><th>ความคืบหน้า</th></tr></thead>
         <tbody>
           {#each ov.docs as d}
             <tr class="clickrow" on:click={() => dispatch('open', d.docCode)}>

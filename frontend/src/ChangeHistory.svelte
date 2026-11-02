@@ -7,7 +7,7 @@
   export let currentVer = null
   export let showSigner = false
   export let onDoc = false
-  /** เอกสารควบคุมในทะเบียน — แสดง Rev./ผู้อนุมัติ และติดป้ายเวอร์ชันที่บันทึกก่อนมีระบบอนุมัติ */
+  /** เอกสารควบคุมในทะเบียน — แสดงฉบับ/ผู้อนุมัติ และติดป้ายเวอร์ชันที่บันทึกก่อนมีระบบอนุมัติ */
   export let controlled = false
 
   const legacy = (v) => controlled && v.source !== 'original' && !v.changeId
@@ -35,7 +35,7 @@
           {@const np = noteParts(v)}
           <tr class={currentVer != null && v.version === currentVer ? 'cur' : ''}>
             <td>{versions.length - i}</td>
-            <td><span class="verpill">v{v.version}</span>{#if v.rev} <span class="nowrap">{v.rev}</span>{/if}</td>
+            <td><span class="verpill">#{v.version}</span>{#if v.rev} <span class="nowrap">{v.rev}</span>{/if}</td>
             <td>{changeTopic(v, np)}{#if legacy(v)}<br /><span class="legacy-flag" title="บันทึกก่อนเปิดใช้ขั้นตอนตรวจสอบ/อนุมัติ (DCR)">ไม่ผ่าน DCR</span>{/if}</td>
             <td>{np.detail || np.extra || '—'}</td>
             <td>{np.pages || '—'}</td>

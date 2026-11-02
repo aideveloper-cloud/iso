@@ -105,13 +105,13 @@ pub async fn evaluate(st: &S) -> Value {
                 if st.by_code.contains_key(&code) && source != "original" && change_id == 0 { unapproved.push(code); }
             }
         }
-        if let Ok(rows) = c.query("SELECT doc_code,ref_no,updated_at FROM doc_changes WHERE status IN ('review','approve','returned')", &[]).await {
+        if let Ok(rows) = c.query("SELECT doc_code,ref_no,updated_at FROM doc_changes WHERE status IN ('approve','returned')", &[]).await {
             for r in rows {
                 if days_since(&r.get::<_, String>(2)) > 14 { stale_dcr.push(format!("{} ({})", r.get::<_, String>(1), r.get::<_, String>(0))); }
             }
         }
         car_rows = c.query("SELECT ref_no,status,due_date,assignee_code,action_taken,effectiveness,root_cause,kind,verified_code FROM actions WHERE status<>'cancelled'", &[]).await.unwrap_or_default();
-        form_rows = c.query("SELECT ref_no,status,created_at,submitted_at FROM form_records WHERE status IN ('review','approve')", &[]).await.unwrap_or_default();
+        form_rows = c.query("SELECT ref_no,status,created_at,submitted_at FROM form_records WHERE status='approve'", &[]).await.unwrap_or_default();
         training_n = c.query_one("SELECT COUNT(*) FROM training_log", &[]).await.map(|r| r.get(0)).unwrap_or(0);
     }
 
@@ -169,7 +169,7 @@ pub async fn evaluate(st: &S) -> Value {
     cs.check("car-closure", "ปิด CAR/DAR/PAR ครบ: สาเหตุ การแก้ไข และทวนสอบประสิทธิผล", "การแก้ไข", "10.2", no_record.is_empty(), false,
         format!("{} ใบปิดแล้วแต่ขาดสาเหตุ/การดำเนินการ หรือไม่ได้ทวนสอบประสิทธิผลโดยผู้อื่น", no_record.len()), no_record);
     cs.check("car-verify", "CAR/DAR/PAR ที่รอทวนสอบประสิทธิผล", "การแก้ไข", "10.2", awaiting.is_empty(), false,
-        format!("รอผู้ตรวจสอบทวนสอบ {} ใบ", awaiting.len()), awaiting);
+        format!("รอผู้อนุมัติทวนสอบ {} ใบ", awaiting.len()), awaiting);
 
     // ---------- บันทึก / การอบรม ----------
     let late_forms: Vec<String> = form_rows.iter().filter(|r| {
@@ -178,7 +178,7 @@ pub async fn evaluate(st: &S) -> Value {
         days_since(if submitted.is_empty() { &created } else { &submitted }) > 7
     }).map(|r| r.get::<_, String>(0)).collect();
     cs.check("form-pending", "บันทึกแบบฟอร์มได้รับการอนุมัติตามเวลา", "บันทึก", "7.5", late_forms.is_empty(), false,
-        format!("รอตรวจสอบ/อนุมัติเกิน 7 วัน {} ใบ", late_forms.len()), late_forms);
+        format!("รออนุมัติเกิน 7 วัน {} ใบ", late_forms.len()), late_forms);
     cs.check("training-records", "มีบันทึกการอบรมในระบบ", "การอบรม", "7.2", training_n > 0, false,
         if training_n > 0 { format!("บันทึกผู้เข้าอบรม {training_n} รายการ (จาก FM-HR-008 ที่อนุมัติแล้ว)") }
         else { "ยังไม่มีบันทึกการอบรมที่อนุมัติในระบบ — หลักฐานยังอยู่ในแฟ้มกระดาษ/Excel".into() }, vec![]);
@@ -200,6 +200,22 @@ pub async fn evaluate(st: &S) -> Value {
             if total == 0 { "ยังไม่มีหลักฐานการแจกจ่าย/รับทราบเอกสารในระบบ — ส่งคำขอรับทราบจากเมนู การรับทราบเอกสาร".into() }
             else { format!("รับทราบแล้ว {}% ({}/{}) · เลยกำหนด {overdue} คำขอ", ak["rate"], ak["acknowledged"], total) },
             ak["overdueDocs"].as_array().cloned().unwrap_or_default().iter().filter_map(|x| x.as_str().map(String::from)).collect());
+    }
+
+    // ---------- ควบคุม Rev. / สำเนาเอกสาร (7.5.3.2 c–d) ----------
+    let rc = crate::revcontrol::evaluate(st).await;
+    if let Some(sm) = rc.get("summary") {
+        let n = |k: &str| sm[k].as_i64().unwrap_or(0);
+        let mism: Vec<String> = rc["issues"].as_array().cloned().unwrap_or_default().iter()
+            .filter(|i| i["level"] == json!("bad")).filter_map(|i| i["docCode"].as_str().map(String::from)).collect();
+        cs.check("doc-rev-file", "เลขฉบับในไฟล์และแบบฟอร์มออนไลน์ตรงกับทะเบียน", "เอกสาร", "7.5", mism.is_empty(), false,
+            if mism.is_empty() { format!("ตรวจเนื้อหาไฟล์แล้ว {} ฉบับ — ไม่พบเลขฉบับที่ขัดกับทะเบียน", n("scanned")) }
+            else { format!("{} ฉบับระบุเลขฉบับไม่ตรงทะเบียน — ตรวจที่เมนู ควบคุมฉบับ / สำเนา", mism.len()) }, mism);
+        let overdue: Vec<String> = rc["recall"].as_array().cloned().unwrap_or_default().iter()
+            .filter(|c| c["overdue"] == json!(true)).filter_map(|c| c["copyNo"].as_str().map(String::from)).collect();
+        cs.check("doc-copy-recall", "เรียกคืนสำเนาเอกสารฉบับเก่าครบตามกำหนด", "เอกสาร", "7.5", overdue.is_empty(), false,
+            if n("recall") == 0 { format!("ไม่มีสำเนาฉบับเก่าค้างเรียกคืน · สำเนาควบคุมที่ใช้งาน {} ชุด", n("activePrint")) }
+            else { format!("ค้างเรียกคืน {} รายการ · เลยกำหนด {} วัน {} รายการ", n("recall"), n("recallDays"), overdue.len()) }, overdue);
     }
 
     // ---------- การตรวจติดตามภายใน (9.2) ----------
@@ -236,6 +252,88 @@ pub async fn evaluate(st: &S) -> Value {
             }, last.map(|(r, _)| vec![r]).unwrap_or_default());
         cs.check("mr-actions", "งานจากการทบทวนฝ่ายบริหารไม่เกินกำหนด", "ฝ่ายบริหาร", "9.3", late.is_empty(), false,
             format!("งานเลยกำหนด {} งาน", late.len()), late);
+    }
+
+    // ---------- วัตถุประสงค์คุณภาพและการวัด (6.2, 9.1) ----------
+    if let Some(c) = &client {
+        let objs = crate::kpi::active(c).await;
+        let no_owner: Vec<String> = objs.iter().filter(|o| o["ownerCode"].as_str().unwrap_or("").is_empty()).filter_map(|o| o["code"].as_str().map(String::from)).collect();
+        cs.check("kpi-defined", "มีวัตถุประสงค์คุณภาพที่วัดได้ พร้อมผู้รับผิดชอบ", "วัตถุประสงค์", "6.2", !objs.is_empty() && no_owner.is_empty(), objs.is_empty(),
+            if objs.is_empty() { "ยังไม่มีวัตถุประสงค์คุณภาพ/KPI ในระบบ (เมนู วัตถุประสงค์คุณภาพ) — ISO 9001 ข้อ 6.2 กำหนดให้เก็บเป็นเอกสาร".into() }
+            else if no_owner.is_empty() { format!("{} ตัวชี้วัดที่ใช้งาน", objs.len()) }
+            else { format!("{} ตัวชี้วัดยังไม่มีผู้รับผิดชอบ", no_owner.len()) }, no_owner);
+        let missing: Vec<String> = objs.iter().filter(|o| o["missing"] == json!(true))
+            .map(|o| format!("{} ({})", o["code"].as_str().unwrap_or(""), o["expectedPeriod"].as_str().unwrap_or(""))).collect();
+        cs.check("kpi-results", "บันทึกผลตัวชี้วัดครบตามรอบ", "วัตถุประสงค์", "9.1", !objs.is_empty() && missing.is_empty(), false,
+            if objs.is_empty() { "ยังไม่มีตัวชี้วัด".into() }
+            else if missing.is_empty() { "ทุกตัวชี้วัดบันทึกผลงวดล่าสุดแล้ว".into() }
+            else { format!("ค้างบันทึกผลเกิน {} วันหลังสิ้นงวด {} ตัวชี้วัด", crate::kpi::GRACE_DAYS, missing.len()) }, missing);
+        let off: Vec<String> = objs.iter().filter(|o| o["offTargetNoCar"].as_array().map(|a| !a.is_empty()).unwrap_or(false))
+            .filter_map(|o| o["code"].as_str().map(String::from)).collect();
+        cs.check("kpi-offtarget", "ผลที่ไม่ถึงเป้ามีการแก้ไข (CAR)", "วัตถุประสงค์", "10.2", off.is_empty(), false,
+            if off.is_empty() { "ไม่มีผลที่ไม่ถึงเป้าค้างโดยไม่มีการแก้ไข".into() } else { format!("{} ตัวชี้วัดไม่ถึงเป้าแต่ยังไม่เปิด CAR", off.len()) }, off);
+    }
+
+    // ---------- ความเสี่ยงและโอกาส (6.1) ----------
+    if let Some(c) = &client {
+        let items = crate::risks::open_items(c).await;
+        let risks_n = items.iter().filter(|r| r["kind"] == json!("risk")).count();
+        let opps_n = items.len() - risks_n;
+        let refs = |f: &dyn Fn(&Value) -> bool| -> Vec<String> { items.iter().filter(|r| f(r)).filter_map(|r| r["refNo"].as_str().map(String::from)).collect() };
+        cs.check("risk-register", "มีทะเบียนความเสี่ยงและโอกาส", "ความเสี่ยง", "6.1", risks_n > 0 && opps_n > 0, false,
+            if items.is_empty() { "ยังไม่มีทะเบียนความเสี่ยงและโอกาสในระบบ (เมนู ความเสี่ยงและโอกาส)".into() }
+            else { format!("ความเสี่ยง {risks_n} · โอกาส {opps_n} รายการที่ยังติดตาม{}", if opps_n == 0 { " — ข้อ 6.1 ต้องพิจารณาโอกาสด้วย" } else { "" }) }, vec![]);
+        let weak = refs(&|r| r["gaps"].as_array().map(|g| !g.is_empty()).unwrap_or(false));
+        cs.check("risk-plan", "ความเสี่ยงระดับกลาง–สูงมีแผนจัดการและผู้รับผิดชอบ", "ความเสี่ยง", "6.1", weak.is_empty(), false,
+            format!("{} รายการยังขาดผู้รับผิดชอบ/แนวทาง/แผนจัดการ", weak.len()), weak);
+        let overdue = refs(&|r| r["reviewOverdue"] == json!(true));
+        let high_overdue = items.iter().any(|r| r["reviewOverdue"] == json!(true) && r["level"] == json!("high"));
+        cs.check("risk-review", "ทบทวนความเสี่ยงและประสิทธิผลของการจัดการตามกำหนด", "ความเสี่ยง", "6.1", overdue.is_empty(), high_overdue,
+            if overdue.is_empty() { "ไม่มีรายการเลยกำหนดทบทวน".into() } else { format!("เลยกำหนดทบทวน {} รายการ{}", overdue.len(), if high_overdue { " (มีระดับสูง)" } else { "" }) }, overdue);
+    }
+
+    // ---------- เครื่องมือวัดและการสอบเทียบ (7.1.5) ----------
+    if let Some(c) = &client {
+        let eq = crate::calibration::active(c).await;
+        let codes = |f: &dyn Fn(&Value) -> bool| -> Vec<String> { eq.iter().filter(|e| f(e)).filter_map(|e| e["code"].as_str().map(String::from)).collect() };
+        let in_use = eq.iter().filter(|e| e["status"] == json!("in_use")).count();
+        let weak = codes(&|e| e["gaps"].as_array().map(|g| !g.is_empty()).unwrap_or(false));
+        cs.check("cal-register", "มีทะเบียนเครื่องมือวัดพร้อมช่วงวัด/ความแม่นยำและผู้รับผิดชอบ", "เครื่องมือวัด", "7.1.5", !eq.is_empty() && weak.is_empty(), false,
+            if eq.is_empty() { "ยังไม่มีทะเบียนเครื่องมือวัดในระบบ (เมนู เครื่องมือวัดและสอบเทียบ) — ข้อ 7.1.5 ต้องเก็บหลักฐานการสอบเทียบ".into() }
+            else if weak.is_empty() { format!("{} เครื่อง (ใช้งาน {in_use})", eq.len()) }
+            else { format!("{} เครื่อง · ข้อมูลไม่ครบ {} เครื่อง", eq.len(), weak.len()) }, weak);
+        let overdue = codes(&|e| e["overdue"] == json!(true));
+        cs.check("cal-due", "เครื่องมือที่ใช้งานอยู่สอบเทียบไม่เลยกำหนด", "เครื่องมือวัด", "7.1.5.2", overdue.is_empty(), !overdue.is_empty(),
+            if overdue.is_empty() { format!("ไม่มีเครื่องมือที่ใช้งานเลยกำหนดสอบเทียบ · ไม่เคยสอบเทียบ {} เครื่อง (หยุดใช้งานไว้)", codes(&|e| e["neverCalibrated"] == json!(true)).len()) }
+            else { format!("เลยกำหนดสอบเทียบแต่ยังอยู่ในสถานะใช้งาน {} เครื่อง — ต้องหยุดใช้หรือสอบเทียบทันที", overdue.len()) }, overdue);
+        let pending = codes(&|e| e["pendingImpact"].as_i64().unwrap_or(0) > 0);
+        let no_car = codes(&|e| e["affectedNoCar"].as_i64().unwrap_or(0) > 0);
+        let mut ev = pending.clone();
+        ev.extend(no_car.iter().filter(|x| !pending.contains(x)).cloned());
+        cs.check("cal-impact", "ผลสอบเทียบไม่ผ่านมีการประเมินผลกระทบต่อผลการวัดที่ผ่านมา", "เครื่องมือวัด", "7.1.5.2", ev.is_empty(), false,
+            if ev.is_empty() { "ไม่มีผลสอบเทียบไม่ผ่านที่ค้างประเมินผลกระทบ".into() }
+            else { format!("ค้างประเมินผลกระทบ {} เครื่อง · กระทบผลการวัดแต่ยังไม่เปิด CAR {} เครื่อง", pending.len(), no_car.len()) }, ev);
+    }
+
+    // ---------- ผู้ให้บริการภายนอก (8.4) ----------
+    if let Some(c) = &client {
+        let sups = crate::suppliers::all(c).await;
+        let codes = |f: &dyn Fn(&Value) -> bool| -> Vec<String> { sups.iter().filter(|p| f(p)).filter_map(|p| p["code"].as_str().map(String::from)).collect() };
+        let approved = sups.iter().filter(|p| p["status"] == json!("approved")).count();
+        let cond = sups.iter().filter(|p| p["status"] == json!("conditional")).count();
+        cs.check("sup-list", "มีทะเบียนผู้ขายที่อนุมัติ (Approved supplier list)", "ผู้ขาย", "8.4.1", approved > 0, false,
+            if sups.is_empty() { "ยังไม่มีทะเบียนผู้ขายในระบบ (เมนู ผู้ขายและการประเมิน)".into() }
+            else { format!("อนุมัติ {approved} · มีเงื่อนไข {cond} · ระงับ {}", sups.len() - approved - cond) }, vec![]);
+        let late = codes(&|p| p["evalOverdue"] == json!(true));
+        let never = codes(&|p| p["status"] == json!("approved") && p["neverEvaluated"] == json!(true));
+        let mut ev = late.clone();
+        ev.extend(never.iter().filter(|x| !late.contains(x)).cloned());
+        cs.check("sup-eval", "ประเมินผู้ขายตามกำหนด และมีผลประเมินเป็นหลักฐาน", "ผู้ขาย", "8.4.1", ev.is_empty(), false,
+            if ev.is_empty() { "ไม่มีผู้ขายที่เลยกำหนดประเมิน".into() }
+            else { format!("เลยกำหนดประเมิน {} ราย · อนุมัติโดยยังไม่มีผลประเมินในระบบ {} ราย", late.len(), never.len()) }, ev);
+        let poor = codes(&|p| p["poorNoCar"].as_i64().unwrap_or(0) > 0);
+        cs.check("sup-car", "ผลประเมินผู้ขายต่ำมีการแก้ไข (CAR)", "ผู้ขาย", "8.4.2", poor.is_empty(), false,
+            if poor.is_empty() { "ไม่มีผลประเมินต่ำที่ค้างโดยไม่มีการแก้ไข".into() } else { format!("{} รายมีผลประเมินต่ำแต่ยังไม่เปิด CAR", poor.len()) }, poor);
     }
 
     // ---------- หลักฐานตามข้อกำหนด ----------
@@ -301,9 +399,9 @@ pub async fn get(State(st): State<S>) -> Response {
     Json(evaluate(&st).await).into_response()
 }
 
-/// บันทึกผลการคัดกรองครั้งนี้ไว้เป็นหลักฐาน/ดูแนวโน้ม (ผู้ตรวจสอบขึ้นไป)
+/// บันทึกผลการคัดกรองครั้งนี้ไว้เป็นหลักฐาน/ดูแนวโน้ม (ผู้อนุมัติขึ้นไป)
 pub async fn save_run(State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
-    if !eform::can_review(&u.role) { return err(StatusCode::FORBIDDEN, "เฉพาะผู้ตรวจสอบ ผู้อนุมัติ หรือผู้ดูแลระบบ"); }
+    if !eform::can_approve(&u.role) { return err(StatusCode::FORBIDDEN, "เฉพาะผู้อนุมัติ หรือผู้ดูแลระบบ"); }
     let r = evaluate(&st).await;
     let Ok(c) = st.db.get().await else { return err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") };
     let g = |k: &str| r[k].as_i64().unwrap_or(0);

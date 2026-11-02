@@ -8,11 +8,19 @@
   import Actions from './Actions.svelte'
   import AuditHub from './AuditHub.svelte'
   import Changes from './Changes.svelte'
+  import RevControl from './RevControl.svelte'
+  import Verify from './Verify.svelte'
   import ManagementReview from './ManagementReview.svelte'
   import InternalAudit from './InternalAudit.svelte'
   import Acks from './Acks.svelte'
   import TrainingMatrix from './TrainingMatrix.svelte'
+  import AiChat from './AiChat.svelte'
   import Users from './Users.svelte'
+  import Kpi from './Kpi.svelte'
+  import Risks from './Risks.svelte'
+  import Calibration from './Calibration.svelte'
+  import Suppliers from './Suppliers.svelte'
+  import Inbox from './Inbox.svelte'
   import AuditTrail from './AuditTrail.svelte'
   import Forms from './Forms.svelte'
   import Login from './Login.svelte'
@@ -22,7 +30,7 @@
   import FilePreview from './FilePreview.svelte'
   import Icon from './Icon.svelte'
 
-  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm']
+  const TABS = ['dash', 'ov', 'proc', 'reg', 'dcr', 'rev', 'act', 'mr', 'audit', 'forms', 'users', 'trail', 'ia', 'ack', 'tm', 'kpi', 'risk', 'cal', 'sup']
   let tab = 'dash'
   let docs = [], overview = []
   let openCode = null
@@ -38,9 +46,13 @@
   const JUMP_BASE = { type: '', dept: '', unreg: false, section: '', q: '' }
   let jump = { n: 0, ...JUMP_BASE }
   let me = null
+  let aiEnabled = false // แชทผู้ช่วย ISO แสดงเมื่อเซิร์ฟเวอร์ตั้ง OPENAI_API_KEY แล้ว
   let pending = 0
   let checkinToken = ''
+  let verifyToken = '' // #v=<token> จาก QR บนกระดาษ — หน้าตรวจสถานะเอกสาร ไม่ต้อง login
   let formLaunch = null
+  let focus = { kpi: '', risk: '', cal: '', sup: '' } // เปิดรายการเฉพาะเมื่อมาจากงานของฉัน/เตรียม Audit
+  let inboxRefresh = 0
 
   const NAV = [
     { group: 'ภาพรวม', items: [['dash', 'dashboard', 'แดชบอร์ด']] },
@@ -51,11 +63,16 @@
     ] },
     { group: 'ติดตามงาน', items: [
       ['dcr', 'clipboard-check', 'คำขอเปลี่ยนแปลงเอกสาร'],
+      ['rev', 'shield-check', 'ควบคุมฉบับ / สำเนา'],
       ['ack', 'circle-check', 'การรับทราบเอกสาร'],
       ['tm', 'user', 'Training matrix'],
       ['forms', 'clipboard-list', 'บันทึกแบบฟอร์ม'],
       ['act', 'clipboard-check', 'CAR / DAR / PAR'],
       ['ia', 'list-checks', 'ตรวจติดตามภายใน'],
+      ['risk', 'shield-alert', 'ความเสี่ยงและโอกาส'],
+      ['kpi', 'target', 'วัตถุประสงค์คุณภาพ (KPI)'],
+      ['cal', 'gauge', 'เครื่องมือวัดและสอบเทียบ'],
+      ['sup', 'truck', 'ผู้ขายและการประเมิน'],
       ['mr', 'building', 'ทบทวนฝ่ายบริหาร'],
       ['audit', 'list-checks', 'เตรียม Audit'],
     ] },
@@ -63,7 +80,7 @@
 
   // เมนูผู้ดูแลระบบแสดงเฉพาะ admin (server ตรวจสิทธิ์ซ้ำทุกคำขอ)
   $: adminItems = [
-    ...(['reviewer', 'approver', 'admin'].includes(me?.role) ? [['trail', 'list-checks', 'บันทึกการใช้งาน']] : []),
+    ...(['approver', 'admin'].includes(me?.role) ? [['trail', 'list-checks', 'บันทึกการใช้งาน']] : []),
     ...(me?.role === 'admin' ? [['users', 'user', 'ผู้ใช้และสิทธิ์']] : []),
   ]
   $: nav = adminItems.length ? [...NAV, { group: 'ผู้ดูแลระบบ / ตรวจสอบ', items: adminItems }] : NAV
@@ -73,6 +90,7 @@
     loadErr = ''
     try {
       await Promise.all([loadDocs(), api.overview().then((o) => (overview = o))])
+      api.aiStatus().then((a) => (aiEnabled = !!a?.enabled)).catch(() => {})
       loaded = true
     } catch (e) { loadErr = 'โหลดข้อมูลไม่สำเร็จ: ' + e.message }
   }
@@ -83,6 +101,7 @@
     refreshPending()
   }
   function refreshPending() {
+    inboxRefresh += 1
     api.me().then((m) => { pending = m.pending || 0; pendingDocs = m.pendingDocs || 0; pendingAcks = m.pendingAcks || 0 }).catch(() => {})
   }
   async function logout() {
@@ -98,11 +117,13 @@
   onMount(async () => {
     const hash = location.hash || ''
     if (hash.startsWith('#checkin=')) checkinToken = decodeURIComponent(hash.slice('#checkin='.length))
+    if (hash.startsWith('#v=')) verifyToken = decodeURIComponent(hash.slice('#v='.length))
     const onUnauth = () => { me = null }
     window.addEventListener('iso-unauth', onUnauth)
+    window.addEventListener('hashchange', openFromHash)
     try { const t = localStorage.getItem('activeTab'); if (t && TABS.includes(t)) tab = t } catch (e) {}
     try { slim = localStorage.getItem('sidebarSlim') === '1' } catch (e) {}
-    if (!checkinToken && localStorage.getItem('isoToken')) {
+    if (!checkinToken && !verifyToken && localStorage.getItem('isoToken')) {
       try {
         const m = await api.me()
         me = m.user
@@ -127,7 +148,14 @@
   function onGoto(e) {
     const d = e.detail || {}
     setJump({ type: d.type || '', dept: d.dept || '', unreg: !!d.unreg, section: d.section || '' })
+    if (d.ref && ['kpi', 'risk', 'cal', 'sup'].includes(d.tab)) focus = { ...focus, [d.tab]: d.ref }
     goTab(d.tab)
+  }
+  /** คลิกงานในกระดิ่ง: ไปหน้าที่เกี่ยวข้อง (KPI/ความเสี่ยงเปิดรายการนั้นทันที) — เปลี่ยน key เพื่อโหลดหน้าใหม่แม้อยู่หน้าเดิม */
+  let tabKey = 0
+  function onInbox(e) {
+    onGoto(e)
+    tabKey += 1
   }
 
   // ---- ค้นหาส่วนกลาง (ทะเบียน + ภาพรวมองค์กร) ----
@@ -162,6 +190,19 @@
     openOvFile(f)
     clearSearch()
   }
+  function openOvPath(path) {
+    const f = ovFlat.find((x) => x.path === path)
+    if (f) gsOpenOv(f)
+  }
+  /** ลิงก์ส่งต่อ #doc=<รหัส> / #ov=<พาธ> (จากแชทผู้ช่วย) — เปิดเอกสาร/ไฟล์นั้นเมื่อโหลดข้อมูลแล้ว */
+  function openFromHash() {
+    const h = location.hash || ''
+    if (!loaded || !(h.startsWith('#doc=') || h.startsWith('#ov='))) return
+    const v = decodeURIComponent(h.slice(h.indexOf('=') + 1))
+    history.replaceState(null, '', location.pathname + location.search)
+    if (h.startsWith('#doc=')) { if (docs.some((d) => d.code === v)) gsOpenDoc(v) } else openOvPath(v)
+  }
+  $: if (loaded) openFromHash()
   function gsPick(it) {
     if (it.k === 'doc') gsOpenDoc(it.d.code)
     else gsOpenOv(it.f)
@@ -191,6 +232,8 @@
 
 {#if checkinToken}
   <Checkin token={checkinToken} />
+{:else if verifyToken}
+  <Verify token={verifyToken} />
 {:else if !me}
   <Login onOk={loggedIn} />
 {:else if me.mustChangePin}
@@ -206,7 +249,7 @@
       {#each nav as g}
         <div class="navgroup-label">{g.group}</div>
         {#each g.items as [k, ic, label]}
-          <button class={tab === k ? 'active' : ''} title={label} on:click={() => goTab(k)}>
+          <button class={tab === k ? 'active' : ''} title={label} on:click={() => { focus = { kpi: '', risk: '', cal: '', sup: '' }; goTab(k) }}>
             <span class="ic"><Icon name={ic} size={18} /></span><span class="lb">{label}{#if k === 'forms' && pending} ({pending}){/if}{#if k === 'dcr' && pendingDocs} ({pendingDocs}){/if}{#if k === 'ack' && pendingAcks} ({pendingAcks}){/if}</span>
           </button>
         {/each}
@@ -270,7 +313,10 @@
           </div>
         {/if}
         {#if me}
-          <div class="note m-0 whitespace-nowrap">{me.name}<button class="mbtn gh" on:click={logout}>ออก</button></div>
+          <div class="flex items-center gap-2">
+            <Inbox refresh={inboxRefresh} on:go={onInbox} />
+            <div class="note m-0 whitespace-nowrap">{me.name}<button class="mbtn gh" on:click={logout}>ออก</button></div>
+          </div>
         {/if}
       </div>
     </header>
@@ -291,6 +337,8 @@
         <Register {docs} {jump} on:open={open} />
       {:else if tab === 'dcr'}
         <Changes {me} refresh={dcrRefresh} on:open={openChange} />
+      {:else if tab === 'rev'}
+        {#key tabKey}<RevControl {me} refresh={dcrRefresh} on:open={open} />{/key}
       {:else if tab === 'tm'}
         <TrainingMatrix {me} {docs} on:open={open} />
       {:else if tab === 'ack'}
@@ -303,6 +351,14 @@
         <AuditTrail {me} />
       {:else if tab === 'users'}
         <Users {me} />
+      {:else if tab === 'kpi'}
+        {#key tabKey}<Kpi {me} focus={focus.kpi} on:goto={onGoto} />{/key}
+      {:else if tab === 'risk'}
+        {#key tabKey}<Risks {me} focus={focus.risk} on:goto={onGoto} />{/key}
+      {:else if tab === 'cal'}
+        {#key tabKey}<Calibration {me} focus={focus.cal} on:goto={onGoto} />{/key}
+      {:else if tab === 'sup'}
+        {#key tabKey}<Suppliers {me} focus={focus.sup} on:goto={onGoto} />{/key}
       {:else if tab === 'act'}
         <Actions {docs} {me} />
       {:else if tab === 'audit'}
@@ -312,10 +368,11 @@
       {/if}
     </div>
 
-    <footer>ระบบควบคุมเอกสาร ISO 9001:2015 · v2 · หน้าเว็บ Svelte+Bun · API Rust · แปลงเอกสาร Go</footer>
+    <footer>ระบบควบคุมเอกสาร ISO 9001:2015 · v2 · หน้าเว็บ Svelte+Bun · API Rust · ONLYOFFICE</footer>
   </div>
 </div>
 
+{#if me && aiEnabled}<AiChat {docs} on:open={open} on:openov={(e) => openOvPath(e.detail)} />{/if}
 {#if openDoc}
   {#key openDoc.code}
     <DocViewer doc={openDoc} {me} initialChange={openChangeId} on:close={closeDoc} on:saved={onSaved} on:eform={onEform} />

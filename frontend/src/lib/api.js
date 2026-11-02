@@ -1,4 +1,4 @@
-// เรียก Rust API (ผ่าน Vite proxy /api และ /converter)
+// เรียก Rust API (ผ่าน Vite proxy /api)
 function authHeaders(extra = {}) {
   const headers = { ...extra }
   const t = localStorage.getItem('isoToken') || ''
@@ -37,7 +37,6 @@ async function postJson(url, payload, method = 'POST') {
 
 export const api = {
   docs: () => send('/api/docs').then((r) => r.json()),
-  stats: () => send('/api/stats').then((r) => r.json()),
   overview: () => send('/api/overview').then((r) => r.json()),
   overviewContent: (path, v) =>
     send(`/api/overview/content?path=${encodeURIComponent(path)}${v ? '&v=' + v : ''}`).then((r) => r.json()),
@@ -47,7 +46,7 @@ export const api = {
   versions: (code) => send(`/api/docs/${encodeURIComponent(code)}/versions`).then((r) => r.json()),
   content: (code, v) =>
     send(`/api/docs/${encodeURIComponent(code)}/content${v ? '?v=' + v : ''}`).then((r) => r.json()),
-  // คำขอเปลี่ยนแปลงเอกสาร (DCR) — เอกสารในทะเบียนแก้ได้ผ่านขั้นตรวจสอบ/อนุมัติเท่านั้น
+  // คำขอเปลี่ยนแปลงเอกสาร (DCR) — เอกสารในทะเบียนแก้ได้ผ่านขั้นอนุมัติเท่านั้น
   docChanges: (code) => send(`/api/docs/${encodeURIComponent(code)}/changes`).then((r) => r.json()),
   changeCreate: (code, payload) => postJson(`/api/docs/${encodeURIComponent(code)}/changes`, payload),
   changes: () => send('/api/changes').then((r) => r.json()),
@@ -64,6 +63,25 @@ export const api = {
   editCommit: (id, note) => postJson(`/api/edit/${id}/commit`, { note }),
   ovEditMine: (path) => send(`/api/overview/edit?path=${encodeURIComponent(path)}`).then((r) => r.json()),
   ovEditStart: (path) => postJson('/api/overview/edit', { path }),
+  // ควบคุมฉบับ / สำเนาเอกสาร (7.5.3.2) — ดู revcontrol.rs
+  revControl: () => send('/api/revcontrol').then((r) => r.json()),
+  copies: (q) => send('/api/copies?' + new URLSearchParams(q || {})).then((r) => r.json()),
+  copyIssue: (code, payload) => postJson(`/api/docs/${encodeURIComponent(code)}/copies`, payload),
+  copyClose: (id, result, note) => postJson(`/api/copies/${id}/close`, { result, note }),
+  // ผู้ช่วย AI (OpenAI ฝั่งเซิร์ฟเวอร์) — เสนอแนะ ผู้ใช้เลือกทำตาม/ไม่ทำตามเอง · ดู aiassist.rs
+  aiStatus: () => send('/api/ai/status').then((r) => r.json()),
+  aiChat: (chatId, message) => postJson('/api/ai/chat', { chatId, message }),
+  aiChats: () => send('/api/ai/chats').then((r) => r.json()),
+  aiChatGet: (id) => send(`/api/ai/chats/${id}`).then((r) => r.json()),
+  aiChatDelete: (id) => postJson(`/api/ai/chats/${id}`, {}, 'DELETE'),
+  aiIndex: () => send('/api/ai/index').then((r) => r.json()),
+  aiIndexNow: () => postJson('/api/ai/index', {}),
+  aiLatest: (kind, subject) => send('/api/ai/reviews?' + new URLSearchParams({ kind, subject })).then((r) => r.json()),
+  aiReviewDoc: (code) => postJson(`/api/ai/docs/${encodeURIComponent(code)}/review`, {}),
+  aiReviewChange: (id) => postJson(`/api/ai/changes/${id}/review`, {}),
+  aiDecide: (id, decision) => postJson(`/api/ai/suggestions/${id}/decide`, { decision }),
+  aiApply: (reviewId, ids) => postJson(`/api/ai/reviews/${reviewId}/apply`, { ids }),
+  verify: (token) => fetch('/api/public/verify/' + encodeURIComponent(token)).then(async (r) => ({ ok: r.ok, body: await r.json().catch(() => ({})) })),
   docObsolete: (code, reason, pin) => postJson(`/api/docs/${encodeURIComponent(code)}/obsolete`, { reason, pin }),
   docReinstate: (code, reason, pin) => postJson(`/api/docs/${encodeURIComponent(code)}/reinstate`, { reason, pin }),
   actions: () => send('/api/actions').then((r) => r.json()),
@@ -109,6 +127,42 @@ export const api = {
   iaItem: (id, item) => postJson(`/api/ia/${id}/items`, item),
   iaRaiseCar: (id, iid, payload) => postJson(`/api/ia/${id}/items/${iid}/car`, payload || {}),
   iaSetAuditor: (code, qualified) => postJson('/api/ia/auditors', { code, qualified }),
+  // วัตถุประสงค์คุณภาพ / KPI (6.2, 9.1)
+  kpiList: () => send('/api/kpi').then((r) => r.json()),
+  kpiCreate: (fields) => postJson('/api/kpi', fields),
+  kpiUpdate: (id, version, fields) => postJson(`/api/kpi/${id}`, { version, fields }, 'PUT'),
+  kpiRetire: (id, version, reason) => postJson(`/api/kpi/${id}/retire`, { version, reason }),
+  kpiRecord: (id, payload) => postJson(`/api/kpi/${id}/results`, payload),
+  kpiCar: (id, period) => postJson(`/api/kpi/${id}/car`, { period }),
+  // ทะเบียนความเสี่ยงและโอกาส (6.1)
+  risks: () => send('/api/risks').then((r) => r.json()),
+  risk: (id) => send(`/api/risks/${id}`).then((r) => r.json()),
+  riskCreate: (fields) => postJson('/api/risks', fields),
+  riskUpdate: (id, version, fields) => postJson(`/api/risks/${id}`, { version, fields }, 'PUT'),
+  riskReview: (id, payload) => postJson(`/api/risks/${id}/review`, payload),
+  riskAct: (id, version, action, reason) => postJson(`/api/risks/${id}/act`, { version, action, reason }),
+  riskPar: (id) => postJson(`/api/risks/${id}/par`, {}),
+  // เครื่องมือวัดและการสอบเทียบ (7.1.5)
+  equipmentList: () => send('/api/equipment').then((r) => r.json()),
+  equipment: (id) => send(`/api/equipment/${id}`).then((r) => r.json()),
+  equipmentCreate: (payload) => postJson('/api/equipment', payload),
+  equipmentUpdate: (id, version, fields) => postJson(`/api/equipment/${id}`, { version, fields }, 'PUT'),
+  equipmentCalibrate: (id, payload) => postJson(`/api/equipment/${id}/calibrations`, payload),
+  equipmentImpact: (id, cid, payload) => postJson(`/api/equipment/${id}/calibrations/${cid}/impact`, payload),
+  equipmentCar: (id, cid) => postJson(`/api/equipment/${id}/calibrations/${cid}/car`, {}),
+  equipmentAct: (id, version, action, reason) => postJson(`/api/equipment/${id}/act`, { version, action, reason }),
+  // ผู้ขายและการประเมิน (8.4)
+  suppliers: () => send('/api/suppliers').then((r) => r.json()),
+  supplier: (id) => send(`/api/suppliers/${id}`).then((r) => r.json()),
+  supplierCreate: (payload) => postJson('/api/suppliers', payload),
+  supplierUpdate: (id, version, fields) => postJson(`/api/suppliers/${id}`, { version, fields }, 'PUT'),
+  supplierEvaluate: (id, payload) => postJson(`/api/suppliers/${id}/evaluations`, payload),
+  supplierCar: (id, vid) => postJson(`/api/suppliers/${id}/evaluations/${vid}/car`, {}),
+  supplierStatus: (id, version, status, reason) => postJson(`/api/suppliers/${id}/status`, { version, status, reason }),
+  // งานของฉัน / การแจ้งเตือน
+  notify: () => send('/api/notify').then((r) => r.json()),
+  notifySettings: (email, emailOn) => postJson('/api/notify/settings', { email, emailOn }, 'PUT'),
+  notifyTest: () => postJson('/api/notify/test', {}),
   auditLog: (q) => send('/api/audit-log?' + new URLSearchParams(q || {})).then((r) => r.json()),
   login: (empCode, pin) => postJson('/api/auth/login', { empCode, pin }),
   logout: () => postJson('/api/auth/logout', {}),
@@ -133,6 +187,7 @@ export const api = {
   formAct: (id, action, comment) => postJson(`/api/forms/records/${id}/act`, { action, comment }),
   formCancel: (id, reason) => postJson(`/api/forms/records/${id}/cancel`, { reason }),
   formAmend: (id, reason) => postJson(`/api/forms/records/${id}/amend`, { reason }),
+  formUpgrade: (id) => postJson(`/api/forms/records/${id}/upgrade`, {}),
   formPending: () => send('/api/forms/pending').then((r) => r.json()),
   formStats: () => send('/api/forms/stats').then((r) => r.json()),
   formTraining: (q) => send('/api/forms/training?' + new URLSearchParams({ q: q || '' })).then((r) => r.json()),
@@ -153,17 +208,14 @@ export const fileUrl = (code, v, dl) =>
 export const pdfUrl = (code, v) => (`/api/docs/${encodeURIComponent(code)}/pdf?v=${v}`)
 export const ovPdfUrl = (p, v) => (`/api/overview/pdf?path=${encodeURIComponent(p)}${v ? `&v=${v}` : ''}`)
 export const changeFileUrl = (id, dl) => (`/api/changes/${id}/file${dl ? '?dl=1' : ''}`)
+export const changePdfUrl = (id) => `/api/changes/${id}/pdf`
+// PDF สำเนาควบคุม (ประทับเลขสำเนา + QR) — เปิดแท็บใหม่เพื่อสั่งพิมพ์
+export const copyPdfUrl = (id) => (`/api/copies/${id}/pdf`)
 // ?s=<sha> เปลี่ยนทุกครั้งที่บันทึก — กันเบราว์เซอร์ใช้ PDF เก่าจากแคช
 export const editPdfUrl = (id, sha) => (`/api/edit/${id}/pdf?s=${(sha || '').slice(0, 16)}`)
 export const ovFileUrl = (p, dl) =>
   (`/api/overview/file?path=${encodeURIComponent(p)}${dl ? '&dl=1' : ''}`)
 
-export const b64ToBytes = (b64) => {
-  const bin = atob(b64)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
 export const bytesToB64 = (bytes) => {
   let s = ''
   const chunk = 0x8000

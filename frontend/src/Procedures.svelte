@@ -86,7 +86,7 @@
           <th on:click={() => sortBy('code')}>รหัส</th>
           <th on:click={() => sortBy('name')}>ชื่อเอกสาร</th>
           {#if activeDept === 'all'}<th on:click={() => sortBy('deptName')}>แผนก</th>{/if}
-          <th on:click={() => sortBy('rev')}>Rev.</th>
+          <th on:click={() => sortBy('rev')}>ฉบับ</th>
           <th on:click={() => sortBy('eff')}>บังคับใช้</th>
           <th>ไฟล์</th>
         </tr></thead>
@@ -97,7 +97,7 @@
               <td>{d.name}{#if d.dup > 1}<br /><span class="dupwarn inline-flex items-center gap-1"><Icon name="alert-triangle" size={12} /> มีไฟล์เก่าซ้ำ {d.dup} ไฟล์ในแฟ้มต้นฉบับ</span>{/if}{#if d.missing}<br /><span class="dupwarn inline-flex items-center gap-1"><Icon name="alert-triangle" size={12} /> ต้นฉบับหาย — อัปโหลดเวอร์ชันใหม่เข้าสู่ระบบ</span>{/if}</td>
               {#if activeDept === 'all'}<td class="dept-cell" title="เลือกแผนกนี้" on:click|stopPropagation={() => (activeDept = d.dept)}>{d.deptName}</td>{/if}
               <td>{d.rev}</td><td>{d.eff}</td>
-              <td><button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openDoc(d.code)} title={d.file}><Icon name="eye" size={14} /> ดูไฟล์ / แก้ไข</button>{#if d.versionCount > 1}<span class="verpill" title="มี {d.versionCount} เวอร์ชัน">v{d.latestVersion}</span>{/if}</td>
+              <td><button class="open inline-flex items-center gap-1.5" on:click|stopPropagation={() => openDoc(d.code)} title={d.file}><Icon name="eye" size={14} /> ดูไฟล์ / แก้ไข</button>{#if d.versionCount > 1}<span class="verpill" title="มี {d.versionCount} เวอร์ชัน">#{d.latestVersion}</span>{/if}</td>
             </tr>
           {/each}
         </tbody>

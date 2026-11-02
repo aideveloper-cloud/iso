@@ -158,7 +158,7 @@
         <tr class="clickrow" on:click={() => dispatch('open', d.code)}>
           <td class="code">{d.code}</td>
           <td>{d.name}</td>
-          <td><span class="verpill">v{d.latestVersion}</span> <span class="mut">({d.versionCount} เวอร์ชัน)</span></td>
+          <td><span class="verpill">#{d.latestVersion}</span> <span class="mut">({d.versionCount} เวอร์ชัน)</span></td>
           <td><span class="open inline-flex items-center gap-1"><Icon name="eye" size={13} /> เปิด / ประวัติ</span></td>
         </tr>
       {/each}

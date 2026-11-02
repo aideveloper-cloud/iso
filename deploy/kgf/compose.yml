@@ -1,4 +1,4 @@
-# iso.kgarden.co.th บน ServerKG (192.168.1.15, Colima) — kgf-iso.sh ส่งไฟล์นี้ไปที่ ~/server/apps/iso/docker-compose.yml
+# iso.kgarden.co.th บน ServerKG (192.168.1.10, Colima) — kgf-iso.sh ส่งไฟล์นี้ไปที่ ~/server/apps/iso/docker-compose.yml
 # ฐานข้อมูลใช้ kgf-postgres กลาง (network kgf) · ค่าลับอยู่ใน .env บน server (DB_PASSWORD, ONLYOFFICE_JWT_SECRET)
 # ข้อมูลเอกสาร/เวอร์ชัน/backup, ฟอนต์ และ credentials ของ tunnel เก็บใน named volume (ไม่พึ่ง mount ของ Colima)
 name: iso
@@ -11,7 +11,6 @@ services:
     restart: unless-stopped
     environment:
       API_PORT: "8085"
-      CONVERTER_PORT: "8081"
       DOCS_ROOT: /data
       DATABASE_URL: host=kgf-postgres port=5432 user=iso password=${DB_PASSWORD:?ตั้ง DB_PASSWORD ใน .env} dbname=iso
       BACKUP_PG_CONTAINER: ""   # pg_dump ต่อ kgf-postgres ตรง (ไม่มี docker ใน container)
@@ -21,25 +20,23 @@ services:
       ONLYOFFICE_INTERNAL_URL: http://iso-office
       ISO_INTERNAL_URL: http://iso-api:8085
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:?ตั้ง ONLYOFFICE_JWT_SECRET ใน .env}
+      # อีเมลสรุปงานรายวัน (เมนูกระดิ่ง → ตั้งค่าอีเมล) — ไม่ตั้ง SMTP_HOST ใน .env = ปิด ใช้เฉพาะในระบบ
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      APP_URL: https://iso.kgarden.co.th
+      # ผู้ช่วย AI (แนะนำการแก้เอกสาร / ช่วยผู้ตรวจ DCR) — ไม่ตั้ง OPENAI_API_KEY ใน .env = ปิดฟีเจอร์ · คีย์อยู่ฝั่ง API เท่านั้น
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     volumes:
       - iso-data:/data
     networks: [kgf]
     logging: &log { driver: json-file, options: { max-size: "10m", max-file: "3" } }
 
-  # converter ใช้ network เดียวกับ api — API เรียก converter ที่ 127.0.0.1:8081 เหมือนบน Windows
-  converter:
-    image: kgf/iso-converter:latest
-    pull_policy: never
-    container_name: iso-converter
-    restart: unless-stopped
-    network_mode: "service:api"
-    environment:
-      CONVERTER_PORT: "8081"
-    volumes:
-      - iso-data:/data:ro
-    logging: *log
-
-  # Word/Excel → PDF สำหรับหน้าอ่านเอกสาร · ฟอนต์ไทยของเอกสาร (Angsana ฯลฯ) อยู่ใน volume iso-fonts
+  # Excel/PowerPoint → PDF สำหรับหน้าอ่านเอกสาร (Word ใช้ ONLYOFFICE · ใช้ตัวนี้แทนเมื่อ ONLYOFFICE ไม่พร้อม) · ฟอนต์ไทยของเอกสาร (Angsana ฯลฯ) อยู่ใน volume iso-fonts
   pdf:
     image: gotenberg/gotenberg:8
     container_name: iso-pdf
@@ -78,7 +75,6 @@ services:
     environment:
       PORT: "8090"
       API_TARGET: http://iso-api:8085
-      CONV_TARGET: http://iso-api:8081
     ports: ["8001:8090"]
     networks: [kgf]
     logging: *log

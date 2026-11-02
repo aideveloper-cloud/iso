@@ -1,16 +1,17 @@
 <script>
-  import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte'
-  import { srcLabel, fmtWhen, DCR_STATUS } from './lib/changeNote.js'
-  import { api, fileUrl, pdfUrl, bytesToB64 } from './lib/api.js'
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte'
+  import { srcLabel, fmtWhen, DCR_STATUS, packChangeNote } from './lib/changeNote.js'
+  import { api, fileUrl, pdfUrl } from './lib/api.js'
   import { OFFICE_EXTS } from './lib/const.js'
   import DocBody from './DocBody.svelte'
   import SignDialog from './SignDialog.svelte'
-  import ConfirmDialog from './ConfirmDialog.svelte'
   import ChangeHistory from './ChangeHistory.svelte'
-  import EditActions from './EditActions.svelte'
   import ChangePanel from './ChangePanel.svelte'
   import OfficeEdit from './OfficeEdit.svelte'
   import DocAcks from './DocAcks.svelte'
+  import DocCopies from './DocCopies.svelte'
+  import IssueCopyDialog from './IssueCopyDialog.svelte'
+  import AiPanel from './AiPanel.svelte'
   import DecisionDialog from './DecisionDialog.svelte'
   import Icon from './Icon.svelte'
 
@@ -38,50 +39,50 @@
   }
 
   let meta = null, ver = null, content = null
-  let dirty = false, editing = false, tab = 'doc'
+  let tab = 'doc'
   let manage = false // false = โหมดอ่าน (ค่าเริ่มต้น) · true = แสดงเครื่องมือขอแก้ไข/แนบไฟล์/ยกเลิกใช้
-  let signing = null // 'edit' | 'upload' | 'office' | null
+  let signing = null // 'upload' | 'office' | null
   let gEdit = false // แสดงตัวแก้ไขเอกสารบนเว็บ (ONLYOFFICE) แทนตัวเอกสาร
   let gEditId = null // รอบแก้ไขที่กำลังส่งขออนุมัติ
   let pendingUpload = null
   let err = '', loading = true
   let uploadInput
-  let confirmAction = null // { message, run }
-  let body // DocBody
-  let draft = null // { bytes, ext } ไฟล์ที่แก้แล้ว สร้างตอนกดอัปเดท
   let savedMsg = ''
 
   $: latestVer = meta?.versions[0]?.version
   $: isLatest = meta != null && ver === latestVer
   $: isSheetExt = meta?.ext === 'xls' || meta?.ext === 'xlsx'
   $: chronVersions = meta ? [...meta.versions].reverse() : []
-  $: openChange = changes.find((c) => ['review', 'approve', 'returned'].includes(c.status)) || null
+  $: openChange = changes.find((c) => ['approve', 'returned'].includes(c.status)) || null
   $: obsolete = meta?.docStatus === 'obsolete'
   // แก้เอกสารควบคุมได้เฉพาะผ่าน DCR: ไม่มีคำขอค้าง, ไม่ถูกยกเลิกใช้, ไม่ใช่บัญชีอ่านอย่างเดียว
   $: canChange = !!meta && isLatest && !openChange && !obsolete && me?.role !== 'viewer'
-  $: canWebEdit = canChange && meta?.editable && content && content.kind !== 'download' && content.kind !== 'embed'
   // ตัวแก้ไขบนเว็บ (ONLYOFFICE) แก้ได้เฉพาะ Word/Excel
   $: canWebOffice = canChange && OFFICE_EXTS.includes(meta?.ext)
   $: canObsolete = !obsolete && !openChange && (me?.role === 'approver' || me?.role === 'admin')
   $: canReinstate = obsolete && me?.role === 'admin'
   $: canManage = canChange || canObsolete
+  // ควบคุมฉบับ (7.5.3.2): ดาวน์โหลดต้นฉบับได้เฉพาะฉบับปัจจุบันที่ยังใช้งาน — ผู้ควบคุมเอกสารดาวน์โหลดฉบับเก่าได้ (ฝั่ง API ตรวจซ้ำ)
+  $: isDcc = ['approver', 'admin'].includes(me?.role)
+  $: canDownload = (v) => isDcc || (v === latestVer && !obsolete)
+  $: canIssueCopy = isDcc && isLatest && !obsolete && !!content
+  const DL_TITLE = 'ไฟล์ที่ดาวน์โหลดถูกบันทึกเป็นสำเนาของคุณ — เมื่อออกฉบับใหม่ ระบบจะแจ้งให้ลบไฟล์เก่า'
+  let issuing = false
+  // ผู้ช่วย AI: แท็บแสดงเมื่อเซิร์ฟเวอร์ตั้ง OPENAI_API_KEY แล้ว · ข้อที่ทำตามสร้างเป็นฉบับร่างแล้วส่ง DCR ตามขั้นตอนปกติ
+  let aiEnabled = false
+  let aiDraft = null // { reason, note } เมื่อฉบับร่างมาจากข้อแนะนำ AI
+  $: canAiApply = canChange && ['docx', 'xlsx'].includes(meta?.ext)
+  $: aiBlocked = openChange ? `มีคำขอ ${openChange.refNo} ค้างอยู่ — ดำเนินการคำขอนั้นให้เสร็จก่อนจึงสร้างคำขอใหม่จากข้อแนะนำได้`
+    : obsolete ? 'เอกสารนี้ยกเลิกใช้แล้ว'
+    : me?.role === 'viewer' ? 'บัญชีอ่านอย่างเดียวแก้เอกสารไม่ได้'
+    : !['docx', 'xlsx'].includes(meta?.ext) ? 'ไฟล์ชนิดนี้แก้อัตโนมัติไม่ได้ — แก้ตามข้อที่ทำตามผ่านปุ่ม “แก้ไขเอกสาร”' : ''
+  function onAiApply(e) {
+    const b = e.detail
+    pendingUpload = { name: b.filename, ext: b.ext, b64: b.dataBase64, size: 0 }
+    aiDraft = { reason: b.reason, note: packChangeNote({ topic: 'แก้ตามข้อแนะนำผู้ช่วย AI', detail: b.note }) }
+    signing = 'upload'
+  }
   $: shownChange =changes.find((c) => c.id === selChange) || openChange || changes[0] || null
-
-  function askConfirm(message, run) {
-    confirmAction = { message, run }
-  }
-
-  function cancelEdit() {
-    editing = false
-    dirty = false
-    load(ver)
-  }
-
-  function startEdit() {
-    manage = true
-    editing = true
-    dirty = false
-  }
 
   function isLatestVer(v) {
     return v.version === latestVer
@@ -89,6 +90,7 @@
 
   onMount(() => {
     load().then(loadAcks).then(resumeWebOffice)
+    api.aiStatus().then((s) => (aiEnabled = !!s?.enabled)).catch(() => {})
     loadChanges().then(() => {
       if (initialChange && changes.some((c) => c.id === initialChange)) { selChange = initialChange; tab = 'dcr' }
     })
@@ -97,7 +99,7 @@
   onDestroy(() => window.removeEventListener('keydown', onKey))
 
   function onKey(e) {
-    if (e.key === 'Escape' && !signing && !confirmAction && !statusAct && !gEdit) close()
+    if (e.key === 'Escape' && !signing && !statusAct && !gEdit && !issuing) close()
   }
 
   /** มีรอบแก้ไขค้างอยู่ (เช่น รีเฟรชหน้าระหว่างแก้) → เปิดตัวแก้ไขต่อให้เลย งานที่บันทึกไว้ไม่หาย */
@@ -148,8 +150,6 @@
     loading = true
     err = ''
     content = null
-    dirty = false
-    editing = false
     try {
       meta = await api.versions(doc.code)
       ver = v || meta.versions[0]?.version
@@ -166,16 +166,6 @@
       err = 'เปิดเอกสารไม่สำเร็จ: ' + e.message
     }
     loading = false
-  }
-
-  async function beginUpdate() {
-    err = ''
-    try {
-      draft = await body.buildEdited()
-      signing = 'edit'
-    } catch (e) {
-      err = 'สร้างไฟล์ที่แก้ไขไม่สำเร็จ: ' + e.message
-    }
   }
 
   function onPickFile(e) {
@@ -202,7 +192,6 @@
   async function doSave(e) {
     const { note, reason, newRev, pin, fail } = e.detail
     try {
-      let dataBase64, ext, source, filename
       if (signing === 'office') {
         const { ok, body } = await api.changeCreate(doc.code, { editId: gEditId, note, reason, newRev, pin })
         if (!ok) { fail(body.error || 'ส่งคำขอไม่สำเร็จ'); return }
@@ -212,25 +201,15 @@
         await afterSubmit(body)
         return
       }
-      if (signing === 'edit') {
-        dataBase64 = bytesToB64(draft.bytes)
-        ext = draft.ext
-        source = 'edit'
-        filename = doc.file.replace(/\.[^.]+$/, '') + '.' + ext
-      } else {
-        dataBase64 = pendingUpload.b64
-        ext = pendingUpload.ext
-        source = 'upload'
-        filename = pendingUpload.name
-      }
-      const { ok, body } = await api.changeCreate(doc.code, { dataBase64, ext, source, filename, note, reason, newRev, pin })
+      const { name: filename, ext, b64: dataBase64 } = pendingUpload
+      const { ok, body } = await api.changeCreate(doc.code, { dataBase64, ext, source: 'upload', filename, note, reason, newRev, pin })
       if (!ok) {
         fail(body.error || 'ส่งคำขอไม่สำเร็จ')
         return
       }
       signing = null
       pendingUpload = null
-      draft = null
+      aiDraft = null
       await afterSubmit(body)
     } catch (ex) {
       fail('ส่งคำขอไม่สำเร็จ: ' + ex.message)
@@ -238,7 +217,7 @@
   }
 
   async function afterSubmit(body) {
-    savedMsg = `ส่งคำขอ ${body.refNo} แล้ว — ${body.newRev} จะมีผลบังคับใช้เมื่อผู้ตรวจสอบและผู้อนุมัติลงนามครบ`
+    savedMsg = `ส่งคำขอ ${body.refNo} แล้ว — ${body.newRev} จะมีผลบังคับใช้เมื่อผู้อนุมัติลงนาม`
     await load(ver)
     await loadChanges()
     selChange = body.id
@@ -247,24 +226,18 @@
     setTimeout(() => { if (savedMsg.includes(body.refNo)) savedMsg = '' }, 8000)
   }
 
-  function close() {
-    if (!dirty) {
-      dispatch('close')
-      return
-    }
-    askConfirm('มีการแก้ไขที่ยังไม่ได้บันทึก ปิดหน้าต่างเลยหรือไม่?', () => dispatch('close'))
-  }
+  function close() { dispatch('close') }
 
   function cancelSign() {
     signing = null
     pendingUpload = null
+    aiDraft = null
   }
 
   async function openAndEdit(v) {
     tab = 'doc'
     await load(v)
     if (canWebOffice) openWebOffice()
-    else if (meta?.editable) await startEdit()
   }
 
   function openVersion(v) {
@@ -284,9 +257,9 @@
           {doc.deptName} · {meta?.rev || doc.rev}{#if meta?.eff} · บังคับใช้ {meta.eff}{/if}
           {#if meta}
             {#if isLatest}
-              <span class="ver-badge latest inline-flex items-center gap-1"><Icon name="circle-check" size={12} /> เวอร์ชันล่าสุด v{ver}</span>
+              <span class="ver-badge latest inline-flex items-center gap-1"><Icon name="circle-check" size={12} /> เวอร์ชันล่าสุด #{ver}</span>
             {:else}
-              <span class="ver-badge old inline-flex items-center gap-1"><Icon name="alert-triangle" size={12} /> เวอร์ชันเก่า v{ver} · ล่าสุด v{latestVer}</span>
+              <span class="ver-badge old inline-flex items-center gap-1"><Icon name="alert-triangle" size={12} /> เวอร์ชันเก่า #{ver} · ล่าสุด #{latestVer}</span>
             {/if}
           {/if}
         </div>
@@ -299,12 +272,12 @@
       <button class={tab === 'hist' ? 'active' : ''} on:click={() => (tab = 'hist')}>ประวัติเวอร์ชัน ({meta?.versions.length || 0})</button>
       <button class={tab === 'dcr' ? 'active' : ''} on:click={() => (tab = 'dcr')}>คำขอเปลี่ยนแปลง ({changes.length}){#if openChange} •{/if}</button>
       <button class={tab === 'ack' ? 'active' : ''} on:click={() => { tab = 'ack'; loadAcks() }}>การแจกจ่าย/รับทราบ{#if myAck} •{/if}</button>
+      <button class={tab === 'copies' ? 'active' : ''} on:click={() => (tab = 'copies')}>สำเนา</button>
+      {#if aiEnabled}<button class={tab === 'ai' ? 'active' : ''} on:click={() => (tab = 'ai')}>ผู้ช่วย AI</button>{/if}
       <span class="grow"></span>
       {#if !loading && tab === 'doc' && meta}
-        {#if content}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
-        {#if editing}
-          <EditActions {editing} {dirty} updateLabel="ส่งขออนุมัติ" on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
-        {:else if manage}
+        {#if content && canDownload(ver)}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download title={DL_TITLE}><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
+        {#if manage}
           <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => { manage = false; gEdit = false }}><Icon name="eye" size={14} /> กลับโหมดอ่าน</button>
         {:else if canManage}
           {#if canWebOffice}
@@ -344,11 +317,14 @@
       {#if loading}
         <div class="loadwrap"><span class="spin"></span><p class="mnote">กำลังเปิดเอกสาร…</p></div>
       {:else if tab === 'doc' && meta}
-        {#if !manage && !editing}
+        {#if !manage}
           <div class="read-bar">
             <span class="read-mode inline-flex items-center gap-1.5"><Icon name="eye" size={14} /> โหมดอ่าน</span>
             <span class="mut">อ่านอย่างเดียว — ต้องการแก้ไขให้กด “{canWebOffice ? 'แก้ไขเอกสาร' : 'ขอแก้ไขเอกสาร'}” (ผ่านคำขอ DCR และการอนุมัติ)</span>
             <span class="grow"></span>
+            {#if canIssueCopy}
+              <button class="mbtn gh inline-flex items-center gap-1.5" title="พิมพ์ไปใช้หน้างาน — ประทับเลขสำเนา + QR และติดตามเรียกคืนเมื่อออกฉบับใหม่" on:click={() => (issuing = true)}><Icon name="printer" size={14} /> พิมพ์สำเนาควบคุม</button>
+            {/if}
             {#if doc.type === 'FM'}
               <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'new' })}><Icon name="plus" size={14} /> กรอกแบบฟอร์มใหม่</button>
               <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'list' })}>บันทึกที่กรอกแล้ว</button>
@@ -359,7 +335,7 @@
         <div class="file-tools">
           <div class="ft-head">
             <b>การแก้ไขเอกสาร</b>
-            <span class="mut">{canWebOffice ? 'แก้ไขเอกสาร' : 'แก้บนเว็บหรือแนบไฟล์'} → ส่งคำขอ (DCR) → ตรวจสอบ → อนุมัติ → มีผลบังคับใช้เป็น Rev. ใหม่</span>
+            <span class="mut">{canWebOffice ? 'แก้ไขเอกสาร' : 'แนบไฟล์'} → ส่งคำขอ (DCR) → อนุมัติ → มีผลบังคับใช้เป็น ฉบับใหม่</span>
           </div>
           <div class="ft-actions">
             {#if canWebOffice && !gEdit}
@@ -367,8 +343,6 @@
             {/if}
             {#if gEdit}
               <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (gEdit = false)}><Icon name="eye" size={14} /> ดูฉบับใช้งานปัจจุบัน / ตัวเลือกอื่น</button>
-            {:else if canWebEdit && !canWebOffice}
-              <EditActions {editing} {dirty} accent updateLabel="ส่งขออนุมัติ" editLabel="แก้ไขบนเว็บเพื่อขออนุมัติ" on:cancel={cancelEdit} on:start={startEdit} on:update={beginUpdate} />
             {:else if canChange}
               <span class="ft-hint">ไฟล์ชนิดนี้แก้บนเว็บไม่ได้ — ใช้แนบไฟล์ใหม่แทน</span>
             {:else if openChange}
@@ -383,7 +357,7 @@
             {#if canObsolete}
               <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => (statusAct = 'obsolete')}><Icon name="x" size={14} /> ยกเลิกใช้เอกสาร</button>
             {/if}
-            {#if content}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
+            {#if content && canDownload(ver)}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, ver, true)} download title={DL_TITLE}><Icon name="download" size={14} /> ดาวน์โหลดเอกสาร</a>{/if}
             {#if doc.type === 'FM'}
               <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'new' })}><Icon name="plus" size={14} /> กรอกแบบฟอร์มใหม่</button>
               <button class="mbtn gh inline-flex items-center gap-1.5" on:click={() => dispatch('eform', { code: doc.code, mode: 'list' })}>บันทึกที่กรอกแล้ว</button>
@@ -392,7 +366,7 @@
             {/if}
           </div>
         </div>
-        {#if !editing && !gEdit}<ChangeHistory versions={meta.versions || []} currentVer={ver} controlled onDoc />{/if}
+        {#if !gEdit}<ChangeHistory versions={meta.versions || []} currentVer={ver} controlled onDoc />{/if}
         {/if}
 
         {#if gEdit && canWebOffice}
@@ -411,21 +385,16 @@
           {#if !isLatest}
             <div class="ver-warn">
               <Icon name="alert-triangle" size={16} />
-              <span>กำลังดูเวอร์ชันเก่า (v{ver}) ซึ่งไม่ควรนำไปใช้งานจริง — เวอร์ชันล่าสุดคือ <b>v{latestVer}</b></span>
+              <span>กำลังดูเวอร์ชันเก่า (#{ver}) ซึ่งไม่ควรนำไปใช้งานจริง — เวอร์ชันล่าสุดคือ <b>#{latestVer}</b> · หน้าเอกสารประทับ SUPERSEDED{#if !isDcc} และดาวน์โหลดไฟล์ต้นฉบับไม่ได้{/if}</span>
               <button class="vw-btn" on:click={() => load(latestVer)}>ไปเวอร์ชันล่าสุด</button>
             </div>
           {/if}
           <DocBody
-            bind:this={body}
             {content}
             name={doc.name}
-            origUrl={fileUrl(doc.code, ver)}
             embedUrl={fileUrl(doc.code, ver)}
             downloadUrl={fileUrl(doc.code, ver, true)}
             pdfUrl={pdfUrl(doc.code, ver)}
-            {editing}
-            saveLabel="ส่งขออนุมัติ"
-            bind:dirty
           />
         {/if}
       {:else if tab === 'hist' && meta}
@@ -455,12 +424,12 @@
               <button class="mbtn gh" on:click={() => openVersion(v.version)}>เปิดดู</button>
             {/if}
             {#if isLatestVer(v) && canChange}
-              {#if meta.editable || canWebOffice}
+              {#if canWebOffice}
                 <button class="mbtn accent" on:click={() => openAndEdit(v.version)}>แก้ไขเพื่อขออนุมัติ</button>
               {/if}
               <button class="mbtn" on:click={() => uploadInput.click()}>แนบไฟล์ขอแก้ไข</button>
             {/if}
-            <a class="mbtn gh" href={fileUrl(doc.code, v.version, true)} download>ดาวน์โหลด</a>
+            {#if canDownload(v.version)}<a class="mbtn gh" href={fileUrl(doc.code, v.version, true)} download>ดาวน์โหลด</a>{/if}
           </svelte:fragment>
         </ChangeHistory>
 
@@ -484,7 +453,7 @@
                   {/if}
                   {#if isLatestVer(v)}
                     {#if canChange}
-                      {#if meta.editable || canWebOffice}
+                      {#if canWebOffice}
                         <button class="mbtn accent inline-flex items-center gap-1.5" on:click={() => openAndEdit(v.version)}>
                           <Icon name="pencil" size={14} /> {isSheetExt ? 'แก้ตารางเพื่อขออนุมัติ' : 'แก้ไขเพื่อขออนุมัติ'}
                         </button>
@@ -494,12 +463,16 @@
                   {:else}
                     <span class="mnote">ข้อมูลเก่า — ใช้เพื่ออ้างอิงเท่านั้น</span>
                   {/if}
-                  <a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, v.version, true)} download><Icon name="download" size={14} /> ดาวน์โหลด</a>
+                  {#if canDownload(v.version)}<a class="mbtn gh inline-flex items-center gap-1.5" href={fileUrl(doc.code, v.version, true)} download><Icon name="download" size={14} /> ดาวน์โหลด</a>{/if}
                 </div>
               </div>
             </div>
           {/each}
         </div>
+      {:else if tab === 'ai' && meta}
+        <AiPanel kind="doc" subject={doc.code} {me} canApply={canAiApply} blockedReason={aiBlocked} on:apply={onAiApply} />
+      {:else if tab === 'copies' && meta}
+        {#key issuing}<DocCopies {doc} {me} rev={meta.rev || doc.rev} canIssue={canIssueCopy} />{/key}
       {:else if tab === 'ack' && meta}
         {#if ackData}<DocAcks data={ackData} code={doc.code} on:changed={(e) => (ackData = e.detail)} />{:else}<div class="loadwrap"><span class="spin"></span></div>{/if}
       {:else if tab === 'dcr' && meta}
@@ -528,10 +501,12 @@
       <SignDialog
         title="{doc.code} · {doc.name}"
         summary={signing === 'office'
-          ? 'ฉบับที่แก้ในตัวแก้ไขเอกสาร → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
-          : signing === 'edit'
-          ? 'แก้ไขบนเว็บ → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
-          : `แนบไฟล์ “${pendingUpload?.name}” → ส่งเป็นฉบับร่างให้ผู้ตรวจสอบและผู้อนุมัติ`}
+          ? 'ฉบับที่แก้ในตัวแก้ไขเอกสาร → ส่งเป็นฉบับร่างให้ผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
+          : aiDraft
+          ? 'ฉบับร่างที่ระบบแก้ตามข้อแนะนำ AI ที่คุณเลือกทำตาม → ส่งให้ผู้อนุมัติ (ฉบับปัจจุบันยังใช้งานจนกว่าจะอนุมัติ)'
+          : `แนบไฟล์ “${pendingUpload?.name}” → ส่งเป็นฉบับร่างให้ผู้อนุมัติ`}
+        initialReason={aiDraft?.reason || ''}
+        initialNote={aiDraft?.note || ''}
         confirmLabel="ส่งขออนุมัติ"
         {me}
         withPin
@@ -539,6 +514,10 @@
         on:confirm={doSave}
         on:cancel={cancelSign}
       />
+    {/if}
+
+    {#if issuing}
+      <IssueCopyDialog {doc} rev={meta?.rev || doc.rev} on:close={() => (issuing = false)} />
     {/if}
 
     {#if acking && myAck}
@@ -567,15 +546,5 @@
       />
     {/if}
 
-    {#if confirmAction}
-      <ConfirmDialog
-        title="ยืนยันการทำรายการ"
-        message={confirmAction.message}
-        confirmLabel="ดำเนินการต่อ"
-        danger
-        on:confirm={() => { confirmAction.run(); confirmAction = null }}
-        on:cancel={() => (confirmAction = null)}
-      />
-    {/if}
   </div>
 </div>

@@ -74,7 +74,7 @@
 <div class="sec !p-0 overflow-auto">
   <table id="tbl">
     <thead><tr>
-      <th>รหัส</th><th>ชื่อเอกสาร</th><th>ประเภท</th><th>แผนก</th><th>Rev.</th><th>บังคับใช้</th><th>เวอร์ชัน</th><th>สถานะ</th>
+      <th>รหัส</th><th>ชื่อเอกสาร</th><th>ประเภท</th><th>แผนก</th><th>ฉบับ</th><th>บังคับใช้</th><th>เวอร์ชัน</th><th>สถานะ</th>
     </tr></thead>
     <tbody>
       {#each rows as d (d.code)}
@@ -86,7 +86,7 @@
           <td>{d.deptName}</td>
           <td>{d.rev}</td>
           <td>{d.eff}</td>
-          <td>{#if (d.versionCount || 1) > 1}<span class="verpill">v{d.latestVersion}</span> <span class="mut">({d.versionCount} เวอร์ชัน)</span>{:else}<span class="mut">ต้นฉบับ</span>{/if}</td>
+          <td>{#if (d.versionCount || 1) > 1}<span class="verpill">#{d.latestVersion}</span> <span class="mut">({d.versionCount} เวอร์ชัน)</span>{:else}<span class="mut">ต้นฉบับ</span>{/if}</td>
           <td>
             {#if iss.length}
               {#each iss as x}<span class="audit-flag f-{x.c}">{x.t}</span>{/each}

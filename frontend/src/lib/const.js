@@ -4,7 +4,6 @@ export const DEPTNAME = {
   PU: 'PU จัดซื้อ', HR: 'HR ทรัพยากรมนุษย์', PD: 'PD ผลิต', QC: 'QC ควบคุมคุณภาพ',
   MN: 'MN ซ่อมบำรุง', WH: 'WH คลังสินค้า',
 }
-export const PROC_READY = ['MR', 'QC']
 export const TYPE_ORDER = [
   ['QM', 'คู่มือคุณภาพ (QM)'], ['QP', 'ระเบียบปฏิบัติ (QP)'],
   ['WI', 'วิธีปฏิบัติงาน (WI)'], ['FM', 'แบบฟอร์ม (FM)'],
@@ -18,9 +17,6 @@ export function fileExt(f) {
 
 /** ชนิดไฟล์ที่แก้ด้วยตัวแก้ไขบนเว็บ (ONLYOFFICE) ได้ — ตรงกับ EDIT_EXTS ใน api/src/editsession.rs */
 export const OFFICE_EXTS = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'pdf']
-export function isWebEditable(e) {
-  return OFFICE_EXTS.includes((e || '').toLowerCase())
-}
 
 export function fileKind(e) {
   if (['xls', 'xlsx'].includes(e)) return { t: 'Excel', c: 'FM', icon: 'file-spreadsheet', label: 'ตาราง Excel' }
@@ -40,8 +36,8 @@ export function matchesQuery(d, q) {
 export function sortByField(rows, key, asc) {
   return rows.slice().sort((a, b) => {
     const x = (a[key] || '') + '', y = (b[key] || '') + ''
-    if (x === y) return 0
-    const dir = x < y ? -1 : 1
+    // เรียงตัวเลขตามค่า — v10.0 ต้องอยู่หลัง v4.0
+    const dir = x.localeCompare(y, 'th', { numeric: true })
     return asc ? dir : -dir
   })
 }

@@ -1,6 +1,6 @@
 <script>
   // Training matrix — ความสามารถของบุคลากร (ISO 9001:2015 ข้อ 7.2)
-  //   ผู้ตรวจสอบขึ้นไป: matrix ทุกคน · กำหนดข้อกำหนดการอบรม · บันทึกการอบรมนอกระบบ  ·  คนอื่น: สถานะและประวัติของตนเอง
+  //   ผู้อนุมัติขึ้นไป: matrix ทุกคน · กำหนดข้อกำหนดการอบรม · บันทึกการอบรมนอกระบบ  ·  คนอื่น: สถานะและประวัติของตนเอง
   import { onMount, createEventDispatcher } from 'svelte'
   import { api } from './lib/api.js'
   import { DEPTS, DEPTNAME } from './lib/const.js'

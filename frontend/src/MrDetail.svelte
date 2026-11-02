@@ -39,8 +39,7 @@
   $: comp = m?.completeness
 
   const DECIDE = {
-    submit: { title: 'ลงนามผู้จัดทำ — ส่งตรวจสอบ', label: 'ส่งตรวจสอบ', comment: 'หมายเหตุ' },
-    pass: { title: 'ลงนามผู้ตรวจสอบ — ส่งผู้อนุมัติ', label: 'ตรวจสอบผ่าน', comment: 'ความเห็นผู้ตรวจสอบ' },
+    submit: { title: 'ลงนามผู้จัดทำ — ส่งอนุมัติ', label: 'ส่งอนุมัติ', comment: 'หมายเหตุ' },
     return: { title: 'ตีกลับเป็นร่าง', label: 'ตีกลับ', comment: 'เหตุผลที่ตีกลับ', required: true, danger: true },
     approve: { title: 'ลงนามผู้อนุมัติ — อนุมัติมติและงานติดตาม', label: 'อนุมัติ', comment: 'ความเห็นฝ่ายบริหาร' },
     close: { title: 'ปิดการประชุมทบทวน', label: 'ปิดการประชุม', comment: 'สรุปผลการติดตาม' },
@@ -54,7 +53,7 @@
     const was = deciding
     deciding = null
     if (was === 'revise') { dispatch('open', r.body.id); return }
-    apply(r, { submit: 'ส่งตรวจสอบแล้ว', pass: 'ตรวจสอบผ่าน — ส่งผู้อนุมัติแล้ว', return: 'ตีกลับเป็นร่างแล้ว', approve: 'อนุมัติแล้ว — เริ่มติดตามงาน', close: 'ปิดการประชุมแล้ว' }[was])
+    apply(r, { submit: 'ส่งอนุมัติแล้ว', return: 'ตีกลับเป็นร่างแล้ว', approve: 'อนุมัติแล้ว — เริ่มติดตามงาน', close: 'ปิดการประชุมแล้ว' }[was])
   }
 
   function startEdit() {
@@ -113,11 +112,7 @@
   <div class="mr-bar no-print">
     {#if can.edit}<button class="mbtn inline-flex items-center gap-1.5" on:click={sync}><Icon name="refresh-cw" size={14} /> ดึงข้อมูลจากระบบล่าสุด</button>{/if}
     {#if m.status === 'draft' && me?.role !== 'viewer'}
-      <button class="mbtn accent inline-flex items-center gap-1.5" disabled={!can.submit} title={can.submit ? '' : 'ต้องครบ 100% ก่อน'} on:click={() => (deciding = 'submit')}><Icon name="pen-line" size={14} /> ลงนามผู้จัดทำ · ส่งตรวจสอบ ({can.percent}%)</button>
-    {/if}
-    {#if can.review}
-      <button class="mbtn accent" on:click={() => (deciding = 'pass')}>ตรวจสอบผ่าน</button>
-      <button class="mbtn danger" on:click={() => (deciding = 'return')}>ตีกลับ</button>
+      <button class="mbtn accent inline-flex items-center gap-1.5" disabled={!can.submit} title={can.submit ? '' : 'ต้องครบ 100% ก่อน'} on:click={() => (deciding = 'submit')}><Icon name="pen-line" size={14} /> ลงนามผู้จัดทำ · ส่งอนุมัติ ({can.percent}%)</button>
     {/if}
     {#if can.approve}
       <button class="mbtn accent" on:click={() => (deciding = 'approve')}>อนุมัติ</button>
@@ -125,8 +120,8 @@
     {/if}
     {#if can.close}<button class="mbtn accent" on:click={() => (deciding = 'close')}>ปิดการประชุม</button>{/if}
     {#if can.revise}<button class="mbtn gh" on:click={() => (deciding = 'revise')}>สร้างฉบับแก้ไข</button>{/if}
-    {#if (m.status === 'review' && !can.review) || (m.status === 'approve' && !can.approve)}
-      <span class="mnote">รอ{m.status === 'review' ? 'ผู้ตรวจสอบ' : 'ผู้อนุมัติ'}ลงนาม — ผู้จัดทำ ผู้ตรวจสอบ และผู้อนุมัติต้องเป็นคนละคน</span>
+    {#if m.status === 'approve' && !can.approve}
+      <span class="mnote">รอผู้อนุมัติลงนาม — ผู้จัดทำและผู้อนุมัติต้องเป็นคนละคน</span>
     {/if}
     {#if m.status === 'monitoring' && !can.close && (me?.role === 'approver' || me?.role === 'admin')}
       <span class="mnote">ปิดได้เมื่อทุกงานเสร็จและทวนสอบแล้ว (ค้าง {can.openActions} · รอทวนสอบ {can.unverified})</span>

@@ -136,7 +136,7 @@ async fn source_file(st: &S, u: &AuthUser, client: &impl deadpool_postgres::Gene
     }
     if u.role == "viewer" { return Err(err(StatusCode::FORBIDDEN, "บัญชีผู้อ่านอย่างเดียวแก้ไขเอกสารไม่ได้")); }
     if doccontrol::is_obsolete(client, code).await { return Err(err(StatusCode::CONFLICT, "เอกสารนี้ถูกยกเลิกใช้แล้ว — ต้องนำกลับมาใช้ก่อนจึงจะแก้ไขได้")); }
-    if let Ok(Some(r)) = client.query_opt("SELECT ref_no FROM doc_changes WHERE doc_code=$1 AND status IN ('review','approve','returned')", &[&code]).await {
+    if let Ok(Some(r)) = client.query_opt("SELECT ref_no FROM doc_changes WHERE doc_code=$1 AND status IN ('approve','returned')", &[&code]).await {
         return Err(err(StatusCode::CONFLICT, &format!("มีคำขอ {} ที่ยังไม่จบอยู่แล้ว — ดำเนินการให้เสร็จหรือยกเลิกก่อน", r.get::<_, String>(0))));
     }
     let (_, abs, ext, filename) = crate::resolve(st, code, None).await?;
@@ -272,7 +272,7 @@ fn started(st: &S, u: &AuthUser, s: &Sess, token: &str, others: Value) -> Respon
 
 // ---------- ONLYOFFICE ----------
 
-fn env_url(k: &str) -> String { std::env::var(k).unwrap_or_default().trim_end_matches('/').to_string() }
+pub(crate) fn env_url(k: &str) -> String { std::env::var(k).unwrap_or_default().trim_end_matches('/').to_string() }
 
 fn b64url(b: &[u8]) -> String {
     use base64::Engine;
@@ -290,7 +290,7 @@ fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
     Sha256::new().chain_update(opad).chain_update(inner).finalize().into()
 }
 
-fn jwt_sign(secret: &str, payload: &Value) -> String {
+pub(crate) fn jwt_sign(secret: &str, payload: &Value) -> String {
     let head = b64url(br#"{"alg":"HS256","typ":"JWT"}"#);
     let body = b64url(payload.to_string().as_bytes());
     let sig = b64url(&hmac_sha256(secret.as_bytes(), format!("{head}.{body}").as_bytes()));
@@ -479,12 +479,114 @@ pub async fn office_health() -> &'static str {
     }
 }
 
+// ---------- ฟอนต์มาตรฐานเอกสาร ----------
+
+/// ฟอนต์มาตรฐานของเอกสาร ISO — ข้อความที่วาง/พิมพ์ในตัวแก้ไขบนเว็บถูกปรับเป็นฟอนต์นี้ทุกครั้งที่บันทึก
+const DOC_FONT: &str = "Angsana New";
+
+/// ฟอนต์สัญลักษณ์ (☐ ✓ • ฯลฯ) — เปลี่ยนแล้วสัญลักษณ์จะกลายเป็นตัวอักษรอื่น จึงคงไว้
+fn symbol_font(name: &str) -> bool {
+    let n = name.trim().to_ascii_lowercase();
+    n == "symbol" || n.starts_with("wingdings") || n == "webdings" || n == "marlett" || n.starts_with("segoe ui symbol")
+        || n.starts_with("segoe ui emoji") || n == "ms gothic" || n == "ms mincho" || n.starts_with("zapf")
+}
+
+/// ค่าของ attribute ในแท็ก XML เช่น attr(r#"<w:rFonts w:ascii="X"/>"#, "w:ascii") = Some("X")
+fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let i = tag.find(&format!(" {name}=\""))? + name.len() + 3;
+    tag[i..].find('"').map(|e| &tag[i..i + e])
+}
+
+/// เปลี่ยน <w:rFonts> ทุกตัวเป็น DOC_FONT (ทั้ง ascii/hAnsi/eastAsia/cs และตัด theme font ที่จะทับค่าที่ตั้ง) — เว้นฟอนต์สัญลักษณ์
+fn force_fonts_xml(xml: &str) -> String {
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml;
+    while let Some(i) = rest.find("<w:rFonts") {
+        let Some(len) = rest[i..].find('>') else { break };
+        let tag = &rest[i..=i + len];
+        // <w:rFontsX ...> ไม่ใช่แท็กนี้
+        let real = matches!(tag.as_bytes().get(9), Some(b' ' | b'/' | b'>'));
+        let symbol = ["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"].iter().any(|a| attr(tag, a).is_some_and(symbol_font));
+        out.push_str(&rest[..i]);
+        if real && !symbol {
+            let hint = attr(tag, "w:hint").map(|h| format!(" w:hint=\"{h}\"")).unwrap_or_default();
+            out.push_str(&format!("<w:rFonts w:ascii=\"{DOC_FONT}\" w:hAnsi=\"{DOC_FONT}\" w:eastAsia=\"{DOC_FONT}\" w:cs=\"{DOC_FONT}\"{hint}{}>",
+                if tag.ends_with("/>") { "/" } else { "" }));
+        } else {
+            out.push_str(tag);
+        }
+        rest = &rest[i + len + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// ค่าเริ่มต้นของเอกสาร (docDefaults) ใช้ DOC_FONT — ข้อความที่ไม่ได้ระบุฟอนต์ (เช่นวางแบบข้อความล้วน) จะได้ฟอนต์นี้
+fn default_font_styles(xml: &str) -> String {
+    let fonts = format!("<w:rFonts w:ascii=\"{DOC_FONT}\" w:hAnsi=\"{DOC_FONT}\" w:eastAsia=\"{DOC_FONT}\" w:cs=\"{DOC_FONT}\"/>");
+    let Some(d) = xml.find("<w:rPrDefault") else {
+        // ไม่มี rPrDefault — เพิ่มไว้ใน docDefaults (หรือสร้าง docDefaults ต่อจากแท็กเปิด <w:styles>)
+        if let Some(i) = xml.find("<w:docDefaults>") {
+            let at = i + "<w:docDefaults>".len();
+            return format!("{}<w:rPrDefault><w:rPr>{fonts}</w:rPr></w:rPrDefault>{}", &xml[..at], &xml[at..]);
+        }
+        let Some(s) = xml.find("<w:styles") else { return xml.to_string() };
+        let Some(e) = xml[s..].find('>') else { return xml.to_string() };
+        let at = s + e + 1;
+        return format!("{}<w:docDefaults><w:rPrDefault><w:rPr>{fonts}</w:rPr></w:rPrDefault></w:docDefaults>{}", &xml[..at], &xml[at..]);
+    };
+    let end = xml[d..].find("</w:rPrDefault>").map(|e| d + e);
+    let block = end.map(|e| &xml[d..e]).unwrap_or("");
+    if block.contains("<w:rFonts") { return xml.to_string(); } // มีแล้ว — force_fonts_xml เปลี่ยนให้
+    match (end, block.find("<w:rPr>")) {
+        (Some(_), Some(r)) => { let at = d + r + "<w:rPr>".len(); format!("{}{fonts}{}", &xml[..at], &xml[at..]) }
+        (Some(e), None) => format!("{}><w:rPr>{fonts}</w:rPr>{}", &xml[..d + "<w:rPrDefault".len()], &xml[e..]),
+        // <w:rPrDefault/>
+        (None, _) => xml.replacen("<w:rPrDefault/>", &format!("<w:rPrDefault><w:rPr>{fonts}</w:rPr></w:rPrDefault>"), 1),
+    }
+}
+
+/// ปรับฟอนต์ใน .docx ทั้งไฟล์ (เนื้อหา สไตล์ หัว/ท้ายกระดาษ เชิงอรรถ) เป็น DOC_FONT — None = ไม่มีอะไรเปลี่ยนหรืออ่านไฟล์ไม่ได้
+fn force_doc_font(bytes: &[u8]) -> Option<Vec<u8>> {
+    use std::io::{Cursor, Read, Write};
+    let fixed = crate::revscan::repair_eocd(bytes);
+    let mut zin = zip::ZipArchive::new(Cursor::new(fixed.as_slice())).ok()?;
+    let targets: Vec<String> = zin.file_names().filter(|n| {
+        matches!(*n, "word/document.xml" | "word/styles.xml" | "word/footnotes.xml" | "word/endnotes.xml")
+            || ((n.starts_with("word/header") || n.starts_with("word/footer")) && n.ends_with(".xml"))
+    }).map(String::from).collect();
+    let mut changed = std::collections::HashMap::new();
+    for name in targets {
+        let mut xml = String::new();
+        zin.by_name(&name).ok()?.read_to_string(&mut xml).ok()?;
+        let mut out = force_fonts_xml(&xml);
+        if name == "word/styles.xml" { out = default_font_styles(&out); }
+        if out != xml { changed.insert(name, out); }
+    }
+    if changed.is_empty() { return None; }
+    let mut zout = zip::ZipWriter::new(Cursor::new(Vec::with_capacity(bytes.len() + 4096)));
+    let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for i in 0..zin.len() {
+        let name = zin.by_index_raw(i).ok()?.name().to_string();
+        if let Some(xml) = changed.get(&name) {
+            zout.start_file(name.as_str(), opts).ok()?;
+            zout.write_all(xml.as_bytes()).ok()?;
+        } else {
+            zout.raw_copy_file(zin.by_index_raw(i).ok()?).ok()?;
+        }
+    }
+    Some(zout.finish().ok()?.into_inner())
+}
+
 /// บันทึกไฟล์ที่แก้เป็นสำเนาทำงานของรอบแก้ไข (ONLYOFFICE ส่ง .doc/.xls/.ppt กลับมาเป็น .docx/.xlsx/.pptx — รับได้ และเปลี่ยนชนิดฉบับร่างตาม)
+/// Word: ข้อความที่วาง/คัดลอกมาจากที่อื่นถูกปรับเป็นฟอนต์มาตรฐาน (Angsana New) ทุกครั้งที่บันทึก
 async fn store_saved(st: &S, s: &Sess, body: &[u8]) -> Result<(), String> {
     if body.is_empty() { return Err("ไฟล์ว่าง".into()); }
     if body.len() > MAX_BYTES { return Err("ไฟล์ใหญ่เกิน 40 MB".into()); }
     let ext = match modern_of(&s.ext) { Some(m) if looks_like(m, body) => m.to_string(), _ => s.ext.clone() };
     if !looks_like(&ext, body) { return Err(format!("ไฟล์ไม่ใช่ .{}", s.ext)); }
+    let normalized = if ext == "docx" { force_doc_font(body) } else { None };
+    let body = normalized.as_deref().unwrap_or(body);
     let (stored, filename) = if ext == s.ext {
         (s.stored_name.clone(), s.filename.clone())
     } else {
@@ -566,5 +668,22 @@ mod tests {
         assert!(jwt_verify("secret", &parts.join(".")).is_none());
         let none_alg = format!("{}.{}.", b64url(br#"{"alg":"none"}"#), b64url(b"{}"));
         assert!(jwt_verify("secret", &none_alg).is_none());
+    }
+
+    #[test]
+    fn forces_angsana_but_keeps_symbol_fonts() {
+        let xml = r#"<w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:ascii="Calibri" w:cs="Tahoma" w:hint="cs"/></w:rPr><w:t>ก</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Wingdings" w:hAnsi="Wingdings"/></w:rPr></w:r><w:rFontsX/>"#;
+        let out = force_fonts_xml(xml);
+        assert!(out.contains(r#"<w:rFonts w:ascii="Angsana New" w:hAnsi="Angsana New" w:eastAsia="Angsana New" w:cs="Angsana New" w:hint="cs"/>"#));
+        assert!(!out.contains("Calibri") && !out.contains("minorHAnsi"));
+        assert!(out.contains(r#"<w:rFonts w:ascii="Wingdings" w:hAnsi="Wingdings"/>"#) && out.contains("<w:rFontsX/>"));
+    }
+
+    #[test]
+    fn sets_document_default_font() {
+        let f = r#"<w:rFonts w:ascii="Angsana New""#;
+        assert!(default_font_styles(r#"<w:styles x="1"><w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="28"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>"#).contains(&format!("<w:rPr>{f}")));
+        assert!(default_font_styles(r#"<w:styles><w:docDefaults><w:rPrDefault/></w:docDefaults></w:styles>"#).contains(f));
+        assert!(default_font_styles(r#"<w:styles x="1"><w:style/></w:styles>"#).starts_with(&format!(r#"<w:styles x="1"><w:docDefaults><w:rPrDefault><w:rPr>{f}"#)));
     }
 }

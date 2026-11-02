@@ -161,12 +161,22 @@ pub async fn summary(st: &S, c: &impl deadpool_postgres::GenericClient) -> Value
             "rate": if total == 0 { Value::Null } else { json!(((met as f64) / (total as f64) * 100.0).round() as i64) } })
 }
 
+/// หลักสูตรที่พนักงานคนนี้ยังขาด/หมดอายุ (ข้อกำหนดชนิดรับทราบเอกสารไปอยู่ในงาน "รับทราบเอกสาร" แล้ว) — ใช้ในกล่องงานของฉัน
+pub async fn my_gaps(st: &S, c: &impl deadpool_postgres::GenericClient, emp_code: &str) -> Vec<(String, String)> {
+    let Some(e) = employees(c, "").await.into_iter().find(|e| e.code == emp_code) else { return vec![] };
+    let f = facts(c).await;
+    active_reqs(c).await.iter().filter(|r| s(r, "kind") != "doc" && applies(r, &e)).filter_map(|r| {
+        let cl = cell(r, &e, &f, st);
+        matches!(cl["status"].as_str(), Some("missing" | "expired")).then(|| (s(r, "title"), s(&cl, "detail")))
+    }).collect()
+}
+
 // ---------- handlers ----------
 
-/// Training matrix (ผู้ตรวจสอบขึ้นไปเห็นทุกคน; คนอื่นเห็นเฉพาะของตนเอง)
+/// Training matrix (ผู้อนุมัติขึ้นไปเห็นทุกคน; คนอื่นเห็นเฉพาะของตนเอง)
 pub async fn matrix(State(st): State<S>, Extension(u): Extension<AuthUser>, Query(q): Query<HashMap<String, String>>) -> Response {
     let Ok(c) = st.db.get().await else { return db_err() };
-    let manager = eform::can_review(&u.role);
+    let manager = eform::can_approve(&u.role);
     let dept = if manager { q.get("dept").cloned().unwrap_or_default() } else { String::new() };
     let reqs = active_reqs(&c).await;
     let mut emps = employees(&c, &dept).await;
@@ -193,9 +203,9 @@ fn source_of(source: String, record_id: i64) -> String {
     if !source.is_empty() { source } else if record_id > 0 { "form".into() } else { "ack".into() }
 }
 
-/// ประวัติการอบรมของพนักงานหนึ่งคน (ตนเอง หรือผู้ตรวจสอบขึ้นไป)
+/// ประวัติการอบรมของพนักงานหนึ่งคน (ตนเอง หรือผู้อนุมัติขึ้นไป)
 pub async fn history(Path(code): Path<String>, State(st): State<S>, Extension(u): Extension<AuthUser>) -> Response {
-    if code != u.emp_code && !eform::can_review(&u.role) { return forbid("ดูประวัติของผู้อื่นได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if code != u.emp_code && !eform::can_approve(&u.role) { return forbid("ดูประวัติของผู้อื่นได้เฉพาะผู้อนุมัติขึ้นไป"); }
     let Ok(c) = st.db.get().await else { return db_err() };
     let rows = c.query("SELECT course,train_date,result,ref_no,source,recorded_by,note,record_id FROM training_log WHERE emp_code=$1 ORDER BY train_date DESC", &[&code]).await.unwrap_or_default();
     Json(Value::Array(rows.iter().map(|r| json!({
@@ -229,7 +239,7 @@ fn validate(st: &S, v: &mut Value, f: ReqFields) -> Result<(), Response> {
 }
 
 pub async fn create_req(State(st): State<S>, Extension(u): Extension<AuthUser>, Json(f): Json<ReqFields>) -> Response {
-    if !eform::can_review(&u.role) { return forbid("กำหนดข้อกำหนดการอบรมได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if !eform::can_approve(&u.role) { return forbid("กำหนดข้อกำหนดการอบรมได้เฉพาะผู้อนุมัติขึ้นไป"); }
     let mut v = json!({ "kind": "course", "targetType": "all", "target": "", "validityMonths": 0, "clause": "7.2", "keywords": "", "docCode": "" });
     if let Err(r) = validate(&st, &mut v, f) { return r; }
     let Ok(c) = st.db.get().await else { return db_err() };
@@ -240,11 +250,12 @@ pub async fn create_req(State(st): State<S>, Extension(u): Extension<AuthUser>, 
         &[&s(&v, "title"), &s(&v, "kind"), &s(&v, "keywords"), &s(&v, "docCode"), &s(&v, "targetType"), &s(&v, "target"), &v["validityMonths"].as_i64().unwrap_or(0), &s(&v, "clause"), &u.name, &now],
     ).await { Ok(r) => r.get(0), Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()) };
     let _ = eform::audit(&c, &u, "training_req", "training_req", &id.to_string(), &s(&v, "title")).await;
+    if s(&v, "kind") == "doc" { crate::acks::on_training_req(&st, &c, &s(&v, "docCode"), &u.name).await; }
     Json(json!({ "ok": true, "id": id })).into_response()
 }
 
 pub async fn update_req(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extension<AuthUser>, Json(f): Json<ReqFields>) -> Response {
-    if !eform::can_review(&u.role) { return forbid("แก้ข้อกำหนดการอบรมได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if !eform::can_approve(&u.role) { return forbid("แก้ข้อกำหนดการอบรมได้เฉพาะผู้อนุมัติขึ้นไป"); }
     let Ok(c) = st.db.get().await else { return db_err() };
     let Some(mut v) = c.query_opt(&format!("SELECT {RCOLS} FROM training_reqs WHERE id=$1"), &[&id]).await.ok().flatten().map(|r| req_json(&r)) else { return err(StatusCode::NOT_FOUND, "ไม่พบข้อกำหนด") };
     if let Err(r) = validate(&st, &mut v, f) { return r; }
@@ -253,6 +264,7 @@ pub async fn update_req(Path(id): Path<i64>, State(st): State<S>, Extension(u): 
         &[&id, &s(&v, "title"), &s(&v, "kind"), &s(&v, "keywords"), &s(&v, "docCode"), &s(&v, "targetType"), &s(&v, "target"), &v["validityMonths"].as_i64().unwrap_or(0), &s(&v, "clause"), &v["active"].as_bool().unwrap_or(true), &now_iso()],
     ).await;
     let _ = eform::audit(&c, &u, if v["active"] == json!(false) { "training_req_off" } else { "training_req_edit" }, "training_req", &id.to_string(), &s(&v, "title")).await;
+    if s(&v, "kind") == "doc" && v["active"] != json!(false) { crate::acks::on_training_req(&st, &c, &s(&v, "docCode"), &u.name).await; }
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -260,9 +272,9 @@ pub async fn update_req(Path(id): Path<i64>, State(st): State<S>, Extension(u): 
 #[allow(non_snake_case)]
 pub struct RecordReq { empCodes: Vec<String>, reqId: Option<i64>, course: Option<String>, date: String, result: Option<String>, refNo: Option<String>, note: Option<String> }
 
-/// บันทึกการอบรมที่ไม่ได้มาจาก FM-HR-008 (อบรมภายนอก, OJT, ใบรับรอง) — ผู้ตรวจสอบขึ้นไป
+/// บันทึกการอบรมที่ไม่ได้มาจาก FM-HR-008 (อบรมภายนอก, OJT, ใบรับรอง) — ผู้อนุมัติขึ้นไป
 pub async fn record(State(st): State<S>, Extension(u): Extension<AuthUser>, Json(b): Json<RecordReq>) -> Response {
-    if !eform::can_review(&u.role) { return forbid("บันทึกการอบรมได้เฉพาะผู้ตรวจสอบขึ้นไป"); }
+    if !eform::can_approve(&u.role) { return forbid("บันทึกการอบรมได้เฉพาะผู้อนุมัติขึ้นไป"); }
     if b.empCodes.is_empty() { return bad("ต้องเลือกพนักงานอย่างน้อย 1 คน"); }
     if chrono::NaiveDate::parse_from_str(&b.date, "%Y-%m-%d").is_err() { return bad("รูปแบบวันที่ไม่ถูกต้อง"); }
     if b.date > today() { return bad("วันที่อบรมต้องไม่อยู่ในอนาคต"); }

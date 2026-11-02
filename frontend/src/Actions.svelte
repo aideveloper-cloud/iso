@@ -226,7 +226,7 @@
             <button class="mbtn danger" on:click={() => (deciding = 'verify_ng')}>ไม่มีประสิทธิผล</button>
           {/if}
           {#if d.can.cancel}<button class="mbtn gh" on:click={() => (deciding = 'cancel')}>ยกเลิกใบ</button>{/if}
-          {#if d.status === 'verify' && !d.can.verify}<span class="mnote">รอผู้ตรวจสอบ (ที่ไม่ใช่ผู้รับผิดชอบ) ทวนสอบประสิทธิผล</span>{/if}
+          {#if d.status === 'verify' && !d.can.verify}<span class="mnote">รอผู้อนุมัติ (ที่ไม่ใช่ผู้รับผิดชอบ) ทวนสอบประสิทธิผล</span>{/if}
           {#if d.can.submit && d.gaps.length}<span class="mnote">ก่อนส่งทวนสอบต้องกรอก: {d.gaps.join(', ')}</span>{/if}
         </div>
 
@@ -276,7 +276,7 @@
           <h2 class="!mb-2">5. ทวนสอบประสิทธิผล</h2>
           {#if d.verifiedAt}
             <div class="det-info"><div><b>ผล:</b> {d.effectiveness === 'effective' ? 'มีประสิทธิผล' : 'ไม่มีประสิทธิผล'}</div><div><b>โดย:</b> {d.verifiedBy} · {fmtWhen(d.verifiedAt)}</div><div class="col-span-2"><b>หลักฐาน:</b> {d.verifyNote}</div></div>
-          {:else}<p class="mut text-[12.5px] m-0">ยังไม่ทวนสอบ — ผู้ตรวจสอบที่ไม่ใช่ผู้รับผิดชอบเป็นผู้ทวนสอบหลังส่งงาน</p>{/if}
+          {:else}<p class="mut text-[12.5px] m-0">ยังไม่ทวนสอบ — ผู้อนุมัติที่ไม่ใช่ผู้รับผิดชอบเป็นผู้ทวนสอบหลังส่งงาน</p>{/if}
         </section>
 
         {#if formErr}<div class="merr mt-3">{formErr}</div>{/if}
