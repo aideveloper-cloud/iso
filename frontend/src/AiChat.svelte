@@ -36,8 +36,9 @@
     input = ''; err = ''; busy = true
     msgs = [...msgs, { role: 'user', content: text }]
     await scroll()
-    const r = await api.aiChat(chatId, text)
-    busy = false
+    let r
+    try { r = await api.aiChat(chatId, text) } catch (e) { r = { ok: false, body: { error: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ลองใหม่อีกครั้ง' } } } finally { busy = false }
+    if (r.body?.chatId) chatId = r.body.chatId
     if (!r.ok) { err = r.body.error || 'ผู้ช่วยตอบไม่สำเร็จ'; await scroll(); return }
     chatId = r.body.chatId
     msgs = [...msgs, { role: 'assistant', content: r.body.reply, sources: r.body.sources || [] }]
@@ -49,7 +50,8 @@
   /** แยกข้อความเป็นช่วงข้อความธรรมดา/รหัสเอกสาร [XX-YYY-000] ที่กดเปิดได้ (ไม่ใช้ HTML จาก AI) */
   function parts(text) {
     const out = []
-    const re = /\[([A-Z]{2,4}-[A-Z0-9]{1,6}-\d{2,4}[A-Z0-9-]*)\]/g
+    // รหัสเอกสารทั้งแบบ [QP-DCC-001] และไม่มีวงเล็บ — กดเปิดได้เฉพาะรหัสที่มีในทะเบียน
+    const re = /\[?([A-Z]{2,4}-[A-Z0-9]{1,6}-\d{2,4}[A-Z0-9-]*)\]?/g
     let last = 0, m
     while ((m = re.exec(text))) {
       if (m.index > last) out.push({ t: text.slice(last, m.index) })

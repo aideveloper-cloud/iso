@@ -621,7 +621,8 @@ pub async fn obsolete(Path(code): Path<String>, State(st): State<S>, Extension(u
     // รอบแก้ไขที่เปิดค้างของเอกสารนี้ใช้ต่อไม่ได้ และข้อกำหนดอบรม "รับทราบเอกสาร" นี้ไม่มีฉบับให้รับทราบแล้ว
     let now = now_iso();
     let _ = client.execute("UPDATE edit_sessions SET status='cancelled',updated_at=$2 WHERE doc_code=$1 AND status='open'", &[&code, &now]).await;
-    let _ = client.execute("UPDATE training_reqs SET active=false,updated_at=$2 WHERE kind='doc' AND doc_code=$1 AND active", &[&code, &now]).await;
+    let _ = client.execute("UPDATE training_reqs SET active=false,off_by_obsolete=true,updated_at=$2 WHERE kind='doc' AND doc_code=$1 AND active", &[&code, &now]).await;
+    crate::aichat::reindex_soon(&st);
     let _ = eform::audit(&client, &u, "doc_obsolete", "document", &code, &reason).await;
     Json(json!({ "ok": true })).into_response()
 }
@@ -635,7 +636,10 @@ pub async fn reinstate(Path(code): Path<String>, State(st): State<S>, Extension(
     let Ok(client) = st.db.get().await else { return db_err() };
     if let Err(r) = eform::verify_pin(&st, &client, &u, b.pin.as_deref().unwrap_or("")).await { return r; }
     set_status(&client, &code, "active", &reason, &u).await;
+    // ข้อกำหนดอบรม "รับทราบเอกสาร" ที่ถูกปิดตอนยกเลิกใช้ กลับมาใช้ก่อนส่งคำขอรับทราบ
+    let _ = client.execute("UPDATE training_reqs SET active=true,off_by_obsolete=false,updated_at=$2 WHERE kind='doc' AND doc_code=$1 AND off_by_obsolete", &[&code, &now_iso()]).await;
     crate::acks::on_reinstate(&st, &client, &code, &u.name).await;
+    crate::aichat::reindex_soon(&st);
     crate::revcontrol::on_reinstate(&client, &code).await;
     let _ = eform::audit(&client, &u, "doc_reinstate", "document", &code, &reason).await;
     Json(json!({ "ok": true })).into_response()
