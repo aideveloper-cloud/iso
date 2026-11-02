@@ -1138,7 +1138,7 @@ fn print_payload(cur: &Value, schema: &Value, origin: &str, token: &str) -> Valu
         "returned" => "ตีกลับ", "cancelled" => "ยกเลิก", "imported" => "นำเข้าจากเอกสารเดิม", "superseded" => "ถูกแทนที่", _ => status_code,
     };
     let watermark = if status_code == "approved" || status_code == "imported" { "" } else { "ร่าง – ยังไม่อนุมัติ" };
-    let mut approvals = vec![json!({
+    let approvals = vec![json!({
         "label": "ผู้จัดทำ", "name": cur["preparedName"], "at": th_when(cur["submittedAt"].as_str().unwrap_or("")), "comment": cur["preparedPosition"],
     })];
     // ขั้นตอนที่ผ่านแล้วถูกใส่ตอนพิมพ์จากอีก endpoint; ที่นี่ใส่จาก field ว่างถ้ายังไม่มีขั้น

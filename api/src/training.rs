@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS training_reqs(
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL);
+-- ข้อกำหนดรับทราบเอกสารที่ถูกปิดเพราะเอกสารยกเลิกใช้ (เปิดคืนเมื่อนำเอกสารกลับมาใช้)
+ALTER TABLE training_reqs ADD COLUMN IF NOT EXISTS off_by_obsolete BOOLEAN NOT NULL DEFAULT false;
 ";
 
 fn db_err() -> Response { err(StatusCode::INTERNAL_SERVER_ERROR, "เชื่อมต่อฐานข้อมูลไม่ได้") }

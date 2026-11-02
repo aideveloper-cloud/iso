@@ -128,7 +128,11 @@ pub async fn items(st: &S, u: &AuthUser) -> Vec<Value> {
     }
     if eform::can_approve(&u.role) {
         // รายงานการประชุมทบทวนที่รออนุมัติ (ผู้จัดทำอนุมัติของตนเองไม่ได้ — ระบบตรวจซ้ำตอนลงนาม)
-        if let Ok(rows) = c.query("SELECT ref_no,period FROM mr_meetings WHERE status='approve' ORDER BY id", &[]).await {
+        let admin = eform::is_admin(&u.role);
+        if let Ok(rows) = c.query(
+            "SELECT m.ref_no,m.period FROM mr_meetings m WHERE m.status='approve' AND ($2 OR COALESCE((SELECT s.emp_code FROM mr_signatures s
+               WHERE s.meeting_id=m.id AND s.stage='prepared' ORDER BY s.id DESC LIMIT 1),'')<>$1) ORDER BY m.id", &[&me, &admin],
+        ).await {
             for r in rows {
                 let (refno, period): (String, String) = (r.get(0), r.get(1));
                 out.push(item("mr", "mr", &refno, &format!("อนุมัติรายงานการทบทวนฝ่ายบริหาร {period}"), String::new(), "", "todo"));
@@ -146,9 +150,9 @@ pub async fn items(st: &S, u: &AuthUser) -> Vec<Value> {
         }
         // การตรวจติดตามที่รายงานแล้ว และ CAR ปิดครบ — รอผู้อนุมัติปิดการตรวจ
         if let Ok(rows) = c.query(
-            "SELECT a.ref_no,a.title FROM ia_audits a WHERE a.status='reported' AND NOT EXISTS (
+            "SELECT a.ref_no,a.title FROM ia_audits a WHERE a.status='reported' AND ($1 OR (a.lead_code<>$2 AND a.team NOT LIKE '%\"' || $2 || '\"%')) AND NOT EXISTS (
                SELECT 1 FROM ia_items i JOIN actions x ON x.id=i.car_id WHERE i.audit_id=a.id AND x.status NOT IN ('closed','cancelled'))
-             ORDER BY a.id", &[],
+             ORDER BY a.id", &[&admin, &me],
         ).await {
             for r in rows {
                 let (refno, title): (String, String) = (r.get(0), r.get(1));

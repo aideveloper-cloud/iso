@@ -489,6 +489,8 @@ fn symbol_font(name: &str) -> bool {
     let n = name.trim().to_ascii_lowercase();
     n == "symbol" || n.starts_with("wingdings") || n == "webdings" || n == "marlett" || n.starts_with("segoe ui symbol")
         || n.starts_with("segoe ui emoji") || n == "ms gothic" || n == "ms mincho" || n.starts_with("zapf")
+        // สมการ (OMML) ต้องใช้ฟอนต์คณิตศาสตร์ — เปลี่ยนแล้ว Word แสดงสมการผิด
+        || n == "cambria math" || n.ends_with(" math")
 }
 
 /// ค่าของ attribute ในแท็ก XML เช่น attr(r#"<w:rFonts w:ascii="X"/>"#, "w:ascii") = Some("X")
@@ -526,6 +528,10 @@ fn default_font_styles(xml: &str) -> String {
     let fonts = format!("<w:rFonts w:ascii=\"{DOC_FONT}\" w:hAnsi=\"{DOC_FONT}\" w:eastAsia=\"{DOC_FONT}\" w:cs=\"{DOC_FONT}\"/>");
     let Some(d) = xml.find("<w:rPrDefault") else {
         // ไม่มี rPrDefault — เพิ่มไว้ใน docDefaults (หรือสร้าง docDefaults ต่อจากแท็กเปิด <w:styles>)
+        // <w:docDefaults/> ว่าง — แทนที่ตรงนั้น (ห้ามสร้าง docDefaults ซ้ำ ไม่งั้น Word เปิดแบบซ่อมไฟล์)
+        if xml.contains("<w:docDefaults/>") {
+            return xml.replacen("<w:docDefaults/>", &format!("<w:docDefaults><w:rPrDefault><w:rPr>{fonts}</w:rPr></w:rPrDefault></w:docDefaults>"), 1);
+        }
         if let Some(i) = xml.find("<w:docDefaults>") {
             let at = i + "<w:docDefaults>".len();
             return format!("{}<w:rPrDefault><w:rPr>{fonts}</w:rPr></w:rPrDefault>{}", &xml[..at], &xml[at..]);
@@ -684,6 +690,10 @@ mod tests {
         let f = r#"<w:rFonts w:ascii="Angsana New""#;
         assert!(default_font_styles(r#"<w:styles x="1"><w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="28"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>"#).contains(&format!("<w:rPr>{f}")));
         assert!(default_font_styles(r#"<w:styles><w:docDefaults><w:rPrDefault/></w:docDefaults></w:styles>"#).contains(f));
+        let self_closing = default_font_styles(r#"<w:styles x="1"><w:docDefaults/><w:style/></w:styles>"#);
+        assert_eq!(self_closing.matches("<w:docDefaults").count(), 1);
+        assert!(self_closing.contains(f));
+        assert!(symbol_font("Cambria Math"));
         assert!(default_font_styles(r#"<w:styles x="1"><w:style/></w:styles>"#).starts_with(&format!(r#"<w:styles x="1"><w:docDefaults><w:rPrDefault><w:rPr>{f}"#)));
     }
 }

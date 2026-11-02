@@ -320,7 +320,8 @@ pub async fn act(Path(id): Path<i64>, State(st): State<S>, Extension(u): Extensi
     if event == "cancel" {
         let rf = s(&a, "refNo");
         for sql in ["UPDATE kpi_results SET car_ref='' WHERE car_ref=$1", "UPDATE risks SET action_ref='' WHERE action_ref=$1",
-                    "UPDATE supplier_evals SET car_ref='' WHERE car_ref=$1", "UPDATE calibrations SET car_ref='' WHERE car_ref=$1"] {
+                    "UPDATE supplier_evals SET car_ref='' WHERE car_ref=$1", "UPDATE calibrations SET car_ref='' WHERE car_ref=$1",
+                    "UPDATE ia_items SET car_id=0,car_ref='' WHERE car_ref=$1"] {
             let _ = c.execute(sql, &[&rf]).await;
         }
     }

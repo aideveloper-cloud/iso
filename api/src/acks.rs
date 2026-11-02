@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS doc_acks(
   UNIQUE(doc_code, version, emp_code));
 CREATE INDEX IF NOT EXISTS idx_acks_emp ON doc_acks(emp_code, status);
 CREATE INDEX IF NOT EXISTS idx_acks_doc ON doc_acks(doc_code, version);
+-- บทบาทผู้ตรวจสอบถูกยกเลิก (ผู้ตรวจสอบเดิมเป็นผู้อนุมัติ) — รายชื่อแจกจ่ายตามบทบาทเดิมย้ายตาม
+UPDATE doc_distribution SET target='approver' WHERE target_type='role' AND target='reviewer';
 ";
 
 const COLS: &str = "id,doc_code,version,rev,emp_code,emp_name,dept,status,requested_by,requested_at,due_date,opened_at,acked_at,comment,sha256";
