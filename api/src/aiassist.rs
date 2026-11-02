@@ -292,7 +292,7 @@ fn prior_text(p: &[Past]) -> String {
 fn norm(t: &str) -> Vec<char> { t.chars().filter(|c| c.is_alphanumeric() || ('\u{0E00}'..='\u{0E7F}').contains(c)).flat_map(|c| c.to_lowercase()).collect() }
 
 /// ความคล้ายของข้อความแบบคู่ตัวอักษร (Dice) 0–1
-fn similarity(a: &str, b: &str) -> f32 {
+pub(crate) fn similarity(a: &str, b: &str) -> f32 {
     let (a, b) = (norm(a), norm(b));
     if a.len() < 2 || b.len() < 2 { return if a == b && !a.is_empty() { 1.0 } else { 0.0 }; }
     let pairs = |v: &[char]| v.windows(2).map(|w| (w[0], w[1])).collect::<Vec<_>>();

@@ -120,6 +120,7 @@
     if (hash.startsWith('#v=')) verifyToken = decodeURIComponent(hash.slice('#v='.length))
     const onUnauth = () => { me = null }
     window.addEventListener('iso-unauth', onUnauth)
+    window.addEventListener('hashchange', openFromHash)
     try { const t = localStorage.getItem('activeTab'); if (t && TABS.includes(t)) tab = t } catch (e) {}
     try { slim = localStorage.getItem('sidebarSlim') === '1' } catch (e) {}
     if (!checkinToken && !verifyToken && localStorage.getItem('isoToken')) {
@@ -189,6 +190,19 @@
     openOvFile(f)
     clearSearch()
   }
+  function openOvPath(path) {
+    const f = ovFlat.find((x) => x.path === path)
+    if (f) gsOpenOv(f)
+  }
+  /** ลิงก์ส่งต่อ #doc=<รหัส> / #ov=<พาธ> (จากแชทผู้ช่วย) — เปิดเอกสาร/ไฟล์นั้นเมื่อโหลดข้อมูลแล้ว */
+  function openFromHash() {
+    const h = location.hash || ''
+    if (!loaded || !(h.startsWith('#doc=') || h.startsWith('#ov='))) return
+    const v = decodeURIComponent(h.slice(h.indexOf('=') + 1))
+    history.replaceState(null, '', location.pathname + location.search)
+    if (h.startsWith('#doc=')) { if (docs.some((d) => d.code === v)) gsOpenDoc(v) } else openOvPath(v)
+  }
+  $: if (loaded) openFromHash()
   function gsPick(it) {
     if (it.k === 'doc') gsOpenDoc(it.d.code)
     else gsOpenOv(it.f)
@@ -358,7 +372,7 @@
   </div>
 </div>
 
-{#if me && aiEnabled}<AiChat {docs} on:open={open} />{/if}
+{#if me && aiEnabled}<AiChat {docs} on:open={open} on:openov={(e) => openOvPath(e.detail)} />{/if}
 {#if openDoc}
   {#key openDoc.code}
     <DocViewer doc={openDoc} {me} initialChange={openChangeId} on:close={closeDoc} on:saved={onSaved} on:eform={onEform} />

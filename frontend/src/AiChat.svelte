@@ -10,7 +10,7 @@
 
   let open = false, chats = [], chatId = null, msgs = [], input = '', busy = false, err = '', showList = false
   let listEl, inputEl
-  const EXAMPLES = ['ขั้นตอนขอแก้ไขเอกสารทำยังไง', 'ตอนนี้ฉันมีงานค้างอะไรบ้าง', 'CAR ที่ยังไม่ปิดมีอะไรบ้าง', 'เอกสารไหนเกี่ยวกับการควบคุมเครื่องมือวัด']
+  const EXAMPLES = ['หาเอกสารขั้นตอนการปฏิบัติงานคลังสินค้า', 'ขั้นตอนขอแก้ไขเอกสารทำยังไง', 'ตอนนี้ฉันมีงานค้างอะไรบ้าง', 'CAR ที่ยังไม่ปิดมีอะไรบ้าง']
   $: known = new Set(docs.map((d) => d.code))
 
   async function toggle() {
@@ -60,6 +60,10 @@
     return out
   }
   function openDoc(code) { dispatch('open', code) }
+  function openOv(path) { dispatch('openov', path) }
+  /** ลิงก์ที่คัดลอกส่งต่อได้ (เปิดแล้วเข้าเอกสาร/ไฟล์นั้นหลังเข้าสู่ระบบ) */
+  const docHref = (code) => '#doc=' + encodeURIComponent(code)
+  const ovHref = (path) => '#ov=' + encodeURIComponent(path)
 </script>
 
 <button class="aic-fab" title="ถามผู้ช่วย ISO" on:click={toggle}><Icon name={open ? 'x' : 'message'} size={22} /></button>
@@ -89,16 +93,19 @@
       <div class="aic-msgs" bind:this={listEl}>
         {#if !msgs.length}
           <div class="aic-empty">
-            <p>ถามเรื่องขั้นตอนงาน เอกสาร ข้อกำหนด ISO หรืองานค้างของคุณได้เลย</p>
+            <p>หาเอกสาร ถามเรื่องขั้นตอนงาน ข้อกำหนด ISO หรืองานค้างของคุณได้เลย</p>
             {#each EXAMPLES as ex}<button class="aic-ex" on:click={() => ask(ex)}>{ex}</button>{/each}
           </div>
         {/if}
         {#each msgs as m}
           <div class="aic-msg {m.role}">
-            <div class="aic-bubble">{#each parts(m.content) as p}{#if p.code}<button class="aic-code" on:click={() => openDoc(p.code)}>{p.code}</button>{:else}{p.t}{/if}{/each}</div>
+            <div class="aic-bubble">{#each parts(m.content) as p}{#if p.code}<a class="aic-code" href={docHref(p.code)} on:click|preventDefault={() => openDoc(p.code)}>{p.code}</a>{:else}{p.t}{/if}{/each}</div>
             {#if m.sources?.length}
               <div class="aic-src">
-                {#each m.sources.filter((s) => known.has(s.ref)) as s}<button class="aic-code" title={s.title} on:click={() => openDoc(s.ref)}>{s.ref}</button>{/each}
+                {#each m.sources as s}
+                  {#if s.source === 'ov'}<a class="aic-code" href={ovHref(s.ref)} title="เปิดไฟล์ในภาพรวมองค์กร" on:click|preventDefault={() => openOv(s.ref)}><Icon name="folder" size={11} /> {s.title}</a>
+                  {:else if known.has(s.ref)}<a class="aic-code" href={docHref(s.ref)} title={s.title} on:click|preventDefault={() => openDoc(s.ref)}>{s.ref}</a>{/if}
+                {/each}
               </div>
             {/if}
           </div>
